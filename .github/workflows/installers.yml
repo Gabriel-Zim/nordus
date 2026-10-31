@@ -1,0 +1,166 @@
+# Builds the desktop installers (macOS Apple silicon and Intel, Windows x64, Ubuntu x64) on GitHub's own runners and
+# publishes them as a GitHub Release with stable download names (Nordus.dmg, Nordus-intel.dmg, Nordus-setup.exe,
+# Nordus-amd64.deb), the names install.sh, install.ps1 and the README link to. The release also carries latest*.yml,
+# which the in-app updater reads.
+#
+# The builds are not signed with paid Apple or Microsoft certificates: macOS gets an ad-hoc signature and the
+# installers say so in INSTALL.md. Signing secrets can be added later without changing the download names.
+name: Installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac:
+    name: macOS (Apple silicon + Intel)
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Package both architectures
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm package:mac -c.mac.identity=- -c.dmg.sign=false
+      - name: Stable download names
+        run: |
+          set -euo pipefail
+          cp release/Nordus-*-arm64.dmg release/Nordus.dmg
+          cp release/Nordus-*-x64.dmg release/Nordus-intel.dmg
+          ls -lh release/*.dmg release/*.zip release/*.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Package the installer
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm package:win
+      - name: Stable download name
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp release/Nordus-*-setup.exe release/Nordus-setup.exe
+          ls -lh release/*.exe release/*.yml
+      - name: The packaged server starts
+        shell: bash
+        run: |
+          res=release/win-unpacked/resources
+          HOME="$RUNNER_TEMP/smoke" USERPROFILE="$RUNNER_TEMP/smoke" NORDUS_PORT=21987 node "$res/server/index.js" > "$RUNNER_TEMP/server.log" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 90); do
+            if curl -fsS --max-time 2 http://127.0.0.1:21987/api/health >/dev/null 2>&1; then kill $pid || true; exit 0; fi
+            kill -0 $pid 2>/dev/null || break
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
+
+  linux:
+    name: Ubuntu x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install -y squashfs-tools desktop-file-utils
+      - run: pnpm install --frozen-lockfile
+      - name: Package .deb and AppImage
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm package:linux
+      - name: Stable download names
+        run: |
+          set -euo pipefail
+          cp release/Nordus-*-amd64.deb release/Nordus-amd64.deb 2>/dev/null || cp "$(ls release/*.deb | head -n 1)" release/Nordus-amd64.deb
+          ls -lh release/*.deb release/*.AppImage release/*.yml || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          if-no-files-found: error
+          path: |
+            release/*.deb
+            release/*.AppImage
+            release/latest-linux.yml
+
+  release:
+    name: Publish the release
+    needs: [mac, windows, linux]
+    if: ${{ !cancelled() && needs.mac.result == 'success' && needs.windows.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="v$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then version="${GITHUB_REF_NAME}"; fi
+          if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$version" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$version" artifacts/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Nordus $version" --latest \
+              --notes "Download the installer for your computer below, or see INSTALL.md for the one-line installers and the VPS setup."
+          fi

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A logo do Zim Studio no perfil SVG Tiny PS, para o BIMI.
+
+  ── POR QUE ESTE ARQUIVO NÃO É O PNG CONVERTIDO ──────────────────────
+
+  O perfil SVG Tiny PS proíbe raster embutido: nada de <image>, nem em base64.
+  Também proíbe script, animação, referência externa e link. O que sobra é
+  geometria pura, e é o que está aqui. Um PNG embrulhado em SVG seria recusado
+  na emissão do certificado.
+
+  ── AS REGRAS QUE ESTE ARQUIVO CUMPRE ────────────────────────────────
+
+    · version="1.2" e baseProfile="tiny-ps" no elemento raiz, obrigatórios
+    · <title> obrigatório, e ele é o nome que vai no certificado
+    · viewBox quadrado, sem x nem y no raiz
+    · sem transparência: o fundo cobre os 512x512 inteiros
+    · abaixo de 32 KB
+
+  ── SEM CANTO ARREDONDADO, DE PROPÓSITO ──────────────────────────────
+
+  O ícone do produto tem canto arredondado, e aqui ele é quadrado. Dois
+  motivos: o Gmail recorta o avatar em círculo de qualquer jeito, então o canto
+  nunca apareceria; e um canto arredondado deixa os quatro cantos do quadrado
+  transparentes, que é justamente o que a especificação pede para evitar.
+
+  ── ISTO É UM REDESENHO, E ISSO IMPORTA PARA O CERTIFICADO ───────────
+
+  Não havia vetor da marca no repositório, só PNG. Este arquivo foi desenhado a
+  partir do ícone de 512px, e é fiel na composição, mas não é o original.
+
+  Para um CMC ou VMC, a autoridade certificadora compara a logo com o uso
+  documentado da marca. Se existir o vetor original (Figma, Illustrator), é ele
+  que deve substituir este arquivo antes de pedir o certificado.
+-->
+<svg version="1.2" baseProfile="tiny-ps" xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 512 512" width="512" height="512">
+  <title>Zim Studio</title>
+
+  <defs>
+    <!-- Do canto inferior esquerdo (magenta) ao superior direito (azul),
+         passando por um miolo quase preto. É o que dá profundidade ao ícone
+         em vez de um degradê chapado de duas cores. -->
+    <linearGradient id="fundo" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#D14BF0"/>
+      <stop offset="0.16" stop-color="#8B2BE8"/>
+      <stop offset="0.34" stop-color="#3A1B8C"/>
+      <stop offset="0.5" stop-color="#141042"/>
+      <stop offset="0.66" stop-color="#152A6E"/>
+      <stop offset="0.84" stop-color="#1E63F5"/>
+      <stop offset="1" stop-color="#3FA0FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="512" height="512" fill="url(#fundo)"/>
+
+  <!-- Os quatro colchetes de enquadramento. Traço com ponta arredondada,
+       desenhados como caminho aberto para o arco do canto ficar limpo. -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="round">
+    <path d="M82 196 L82 120 A22 22 0 0 1 104 98 L178 98"/>
+    <path d="M334 98 L408 98 A22 22 0 0 1 430 120 L430 196"/>
+    <path d="M82 316 L82 392 A22 22 0 0 0 104 414 L178 414"/>
+    <path d="M334 414 L408 414 A22 22 0 0 0 430 392 L430 316"/>
+  </g>
+
+  <!-- O Z. As duas pontas cortadas em diagonal (alto à esquerda, baixo à
+       direita) são o que dá o movimento da marca; um Z de pontas retas fica
+       parado. -->
+  <path fill="#FFFFFF"
+        d="M166 148 L358 148 L358 192 L248 310 L358 310 L336 360 L140 360 L140 316 L250 198 L140 198 Z"/>
+
+  <!-- O play, encostado na diagonal do Z. -->
+  <path fill="#FFFFFF"
+        d="M376 210 L430 246 A6 6 0 0 1 430 256 L376 292 A6 6 0 0 1 368 287 L368 215 A6 6 0 0 1 376 210 Z"/>
+</svg>

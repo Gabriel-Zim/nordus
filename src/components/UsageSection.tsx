@@ -1,0 +1,90 @@
+import { useStore } from "@/state/store";
+import { BotAvatar } from "./Avatar";
+import { Card } from "./SettingsPrimitives";
+import { t } from "@/lib/i18n";
+import { botUsage, cachedUsageNote, costCaption, formatTokens, formatUsd, hasFiniteCost, headlineTokens, sumUsage, tokensColumnLabel, usageDetail } from "@/lib/usage";
+import { UsageHistory } from "./UsageHistory";
+import { PlanUsage } from "./PlanUsage";
+
+export function UsageSection() {
+  const { state } = useStore();
+  const rows = state.bots
+    .filter((b) => !b.hidden)
+    .map((bot) => {
+      const usage = botUsage(bot);
+      const instance = state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId);
+      return { bot, usage, billing: instance?.snapshot.billing, instanceId: bot.modelSelection.instanceId };
+    })
+    .filter((r) => r.usage.turns > 0)
+    .sort((a, b) => {
+      const costOf = (value: number | null | undefined) =>
+        hasFiniteCost(value) ? value : Number.NEGATIVE_INFINITY;
+      return costOf(b.usage.costUsd) - costOf(a.usage.costUsd) || headlineTokens(b.usage) - headlineTokens(a.usage);
+    });
+  const total = sumUsage(rows.map((r) => r.usage));
+  const metered = rows.filter((r) => r.billing === "metered");
+  const meteredCost = metered.reduce((sum, r) => sum + (hasFiniteCost(r.usage.costUsd) ? r.usage.costUsd : 0), 0);
+  const accountTokens = new Map<string, number>();
+  for (const r of rows) {
+    if (r.billing === "subscription") accountTokens.set(r.instanceId, (accountTokens.get(r.instanceId) ?? 0) + headlineTokens(r.usage));
+  }
+  const costCell = (r: (typeof rows)[number]) => {
+    if (r.billing === "metered") return hasFiniteCost(r.usage.costUsd) ? formatUsd(r.usage.costUsd) : <span className="text-ink-secondary">—</span>;
+    if (r.billing === "subscription") {
+      const all = accountTokens.get(r.instanceId) ?? 0;
+      const share = all > 0 ? Math.round((headlineTokens(r.usage) / all) * 100) : 0;
+      return <span className="text-ink-secondary" title={t("usage.planShareHint")}>{t("usage.planShare", { percent: share })}</span>;
+    }
+    return <span className="text-ink-secondary">—</span>;
+  };
+  const cachedNote = cachedUsageNote(total);
+
+  return (
+    <>
+    <PlanUsage />
+    <Card title={t("usage.title")} subtitle={t("usage.subtitle")}>
+      {rows.length === 0 ? (
+        <div className="text-[13px] text-ink-secondary">{t("usage.empty")}</div>
+      ) : (
+        <div className="flex flex-col">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-5 border-b border-hairline/40 pb-2 text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary">
+            <span>{t("usage.colBot")}</span>
+            <span className="text-right">{t("usage.colTurns")}</span>
+            <span className="text-right">{tokensColumnLabel(total)}</span>
+            <span className="text-right">{metered.length > 0 ? t("usage.colCost") : t("usage.colShare")}</span>
+          </div>
+          {rows.map((row) => { const { bot, usage } = row; return (
+            <div key={bot.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5 border-b border-hairline/20 py-2 text-[13px]">
+              <span className="flex min-w-0 items-center gap-2 text-ink">
+                <BotAvatar bot={bot} state="idle" size={22} animated={false} />
+                <span className="truncate">{bot.name}</span>
+              </span>
+              <span className="text-right tabular-nums text-ink-secondary">{usage.turns}</span>
+              <span className="text-right tabular-nums text-ink" title={usageDetail(usage)}>
+                {formatTokens(headlineTokens(usage))}
+              </span>
+              <span className="text-right tabular-nums text-ink">{costCell(row)}</span>
+            </div>
+          ); })}
+          <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5 pt-2.5 text-[13px] font-medium text-ink">
+            <span>{t("usage.allBots")}</span>
+            <span className="text-right tabular-nums">{total.turns}</span>
+            <span className="text-right tabular-nums" title={usageDetail(total)}>{formatTokens(headlineTokens(total))}</span>
+            <span className="text-right tabular-nums">{metered.length > 0 ? formatUsd(meteredCost) : "—"}</span>
+          </div>
+          {cachedNote && (
+            <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{cachedNote}</div>
+          )}
+          {metered.length > 0 && (
+            <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("usage.costLine", { caption: costCaption("metered") })}</div>
+          )}
+          {accountTokens.size > 0 && (
+            <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("usage.planShareHint")}</div>
+          )}
+        </div>
+      )}
+    </Card>
+    <UsageHistory />
+    </>
+  );
+}

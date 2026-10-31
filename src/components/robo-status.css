@@ -1,0 +1,7 @@
+.nb-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; flex: none; background: #10b981; }
+.nb-dot[data-estado="trabalhando"] { animation: nb-dot-pisca 1s steps(2, jump-none) infinite; }
+.nb-dot[data-estado="alerta"] { background: #ff8a1a; }
+.nb-dot[data-estado="ausente"] { background: #8b919b; }
+.nb-dot[data-estado="offline"] { background: #ef4444; }
+@keyframes nb-dot-pisca { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .nb-dot { animation: none !important; } }

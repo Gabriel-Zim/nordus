@@ -1,0 +1,203 @@
+import { ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
+import type { DragEvent, KeyboardEvent, MouseEvent } from "react";
+
+import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
+import {
+  sidebarAttentionLabel,
+  type SidebarSectionAttention,
+} from "@/lib/sidebar-attention";
+
+export function SidebarSectionHeader({
+  name,
+  collapsed,
+  attention,
+  alert,
+  onToggle,
+  reorderable,
+  dragging,
+  onDragStart,
+  onDragEnd,
+  onMove,
+  onContextMenu,
+  line = false,
+  onMenu,
+  menuOpen = false,
+}: {
+  name: string;
+  collapsed: boolean;
+  attention?: SidebarSectionAttention;
+  alert?: boolean;
+  onToggle?: () => void;
+  reorderable: boolean;
+  dragging: boolean;
+  onDragStart?: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd?: () => void;
+  onMove?: (direction: -1 | 1) => void;
+  onDelete?: () => void;
+  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
+  line?: boolean;
+  onMenu?: (button: HTMLButtonElement) => void;
+  menuOpen?: boolean;
+}) {
+  const Chevron = collapsed ? ChevronRight : ChevronDown;
+  const attentionLabel = attention ? sidebarAttentionLabel(attention) : "";
+  const onHeaderKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!reorderable || !event.altKey) return;
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onMove?.(-1);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onMove?.(1);
+    }
+  };
+  const toggleTitle = reorderable
+    ? collapsed
+      ? t("sidebar.section.expandReorder", { name })
+      : t("sidebar.section.collapseReorder", { name })
+    : collapsed
+      ? t("sidebar.section.expand", { name })
+      : t("sidebar.section.collapse", { name });
+
+  if (line) {
+    return (
+      <div
+        data-section={name}
+        data-sidebar-section-line=""
+        tabIndex={onContextMenu ? -1 : undefined}
+        onContextMenu={onContextMenu}
+        draggable={reorderable || undefined}
+        onDragStart={reorderable ? onDragStart : undefined}
+        onDragEnd={reorderable ? onDragEnd : undefined}
+        className={cn("flex items-center gap-2 pb-1.5 pl-1.5 pr-0.5 pt-3.5", reorderable && "cursor-grab", dragging && "opacity-40")}
+      >
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            onKeyDown={onHeaderKeyDown}
+            aria-expanded={!collapsed}
+            aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+            title={toggleTitle}
+            className="flex min-w-0 shrink items-center gap-1 rounded px-0.5 text-left text-[11.5px] font-medium tracking-[0.01em] text-ink-tertiary hover:text-ink-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus"
+          >
+            <span className="truncate">{name}</span>
+            {collapsed && <ChevronRight size={11} className="shrink-0" aria-hidden="true" />}
+            <SectionAttention attention={attention} label={attentionLabel} alert={alert} />
+          </button>
+        ) : (
+          <div className="flex min-w-0 shrink items-center px-0.5 text-[11.5px] font-medium tracking-[0.01em] text-ink-tertiary">
+            <span className="truncate">{name}</span>
+            {attentionLabel && <span className="sr-only">{attentionLabel}</span>}
+          </div>
+        )}
+        <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-hairline/60" />
+        {onMenu && (
+          <button
+            type="button"
+            aria-label={t("team.actions", { name })}
+            title={t("team.actions", { name })}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={(event) => onMenu(event.currentTarget)}
+            className="flex h-[18px] w-[22px] shrink-0 items-center justify-center rounded-[5px] text-ink-tertiary hover:bg-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus aria-expanded:bg-raised aria-expanded:text-ink"
+          >
+            <MoreHorizontal size={15} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="group/section flex items-center gap-1 px-2 pb-1" data-section={name} tabIndex={onContextMenu ? -1 : undefined} onContextMenu={onContextMenu}>
+      {onToggle ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          onKeyDown={onHeaderKeyDown}
+          aria-expanded={!collapsed}
+          aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+          title={toggleTitle}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-0.5 text-left hover:bg-raised/50"
+        >
+          <span className="truncate text-[12px] font-semibold text-ink-secondary">
+            {name}
+          </span>
+          <Chevron size={13} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+          <SectionAttention attention={attention} label={attentionLabel} alert={alert} />
+        </button>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-0.5">
+          <span className="truncate text-[12px] font-semibold text-ink-secondary">
+            {name}
+          </span>
+          {attentionLabel && <span className="sr-only">{attentionLabel}</span>}
+        </div>
+      )}
+      {(reorderable || onContextMenu) && (
+        <button
+          type="button"
+          draggable={reorderable}
+          data-section-menu=""
+          aria-label={t("sidebar.section.menuAria", { name })}
+          title={reorderable ? t("sidebar.section.menuHint") : t("sidebar.section.menuAria", { name })}
+          onDragStart={reorderable ? onDragStart : undefined}
+          onDragEnd={reorderable ? onDragEnd : undefined}
+          onClick={(event) => {
+            if (!onContextMenu) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            const header = event.currentTarget.parentElement as HTMLDivElement;
+            onContextMenu({ ...event, clientX: rect.left, clientY: rect.bottom + 4, currentTarget: header, preventDefault: () => event.preventDefault() } as unknown as MouseEvent<HTMLDivElement>);
+          }}
+          className={cn(
+            "flex h-5 w-6 shrink-0 items-center justify-center rounded-[6px] text-ink-tertiary opacity-50 transition-opacity hover:bg-white/[0.06] hover:text-ink hover:opacity-100 focus-visible:opacity-100 group-hover/section:opacity-100 touch:opacity-100",
+            reorderable && "cursor-grab active:cursor-grabbing",
+            dragging && "opacity-40",
+          )}
+        >
+          <MoreHorizontal size={14} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SectionAttention({ attention, label, alert }: { attention?: SidebarSectionAttention; label: string; alert?: boolean }) {
+  return (
+    <>
+      {attention && attention.waiting > 0 && (
+        <span
+          aria-hidden="true"
+          className="min-w-4 rounded-full bg-warning/15 px-1 text-center text-[9px] font-semibold leading-4 text-warning"
+        >
+          {attention.waiting}
+        </span>
+      )}
+      {attention && attention.unread > 0 && (
+        <span
+          aria-hidden="true"
+          className="min-w-4 rounded-full bg-accent/15 px-1 text-center text-[9px] font-semibold leading-4 text-accent"
+        >
+          {attention.unread}
+        </span>
+      )}
+      {attention && attention.working > 0 && (
+        <span
+          aria-hidden="true"
+          className="flex size-4 items-center justify-center"
+        >
+          <span className="size-1.5 animate-pulse rounded-full bg-success" />
+        </span>
+      )}
+      {label && <span className="sr-only">{label}</span>}
+      {alert && (
+        <>
+          <span data-testid="section-alert" aria-hidden="true" className="size-2 shrink-0 rounded-full bg-danger" />
+          <span className="sr-only">{t("computer.routines.needsYou")}</span>
+        </>
+      )}
+    </>
+  );
+}

@@ -1,0 +1,200 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+:root {
+  --nordus-bg: #ffffff;
+  --nordus-raised: #f7f8f8;
+  --nordus-ink: #0a0a0b;
+  --nordus-muted: #5f6570;
+  --nordus-line: #e5e7ea;
+  --nordus-accent: #009957;
+  --nordus-accent-soft: #eaf8f1;
+
+  --color-fd-background: var(--nordus-bg);
+  --color-fd-foreground: var(--nordus-ink);
+  --color-fd-muted: var(--nordus-raised);
+  --color-fd-muted-foreground: var(--nordus-muted);
+  --color-fd-border: var(--nordus-line);
+  --color-fd-primary: var(--nordus-accent);
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-card: var(--nordus-bg);
+  --color-fd-card-foreground: var(--nordus-ink);
+  --color-fd-secondary: var(--nordus-raised);
+  --color-fd-secondary-foreground: var(--nordus-ink);
+  --color-fd-accent: var(--nordus-accent-soft);
+  --color-fd-accent-foreground: #006b3d;
+}
+
+.dark {
+  --nordus-bg: #070708;
+  --nordus-raised: #131315;
+  --nordus-ink: #f4f4f5;
+  --nordus-muted: #9a9aa4;
+  --nordus-line: #232327;
+  --nordus-accent: #3fae6e;
+  --nordus-accent-soft: #10271a;
+
+  --color-fd-primary-foreground: #07130c;
+  --color-fd-accent-foreground: #7bd69e;
+}
+
+html {
+  scrollbar-gutter: stable;
+  background: var(--nordus-bg);
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0 !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+body {
+  background:
+    radial-gradient(circle at 75% -20%, color-mix(in srgb, var(--nordus-accent) 8%, transparent), transparent 32rem),
+    var(--nordus-bg);
+  color: var(--nordus-ink);
+  letter-spacing: -0.012em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--nordus-accent) 24%, transparent);
+}
+
+.nordus-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.9rem;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+}
+
+.nordus-brand img {
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 0.5rem;
+}
+
+.nordus-brand-docs {
+  border-left: 1px solid var(--nordus-line);
+  color: var(--nordus-muted);
+  font-size: 0.78rem;
+  font-weight: 520;
+  letter-spacing: 0;
+  margin-left: 0.1rem;
+  padding-left: 0.7rem;
+}
+
+.nordus-product-shot {
+  margin: 2rem 0;
+}
+
+.nordus-product-shot-frame {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--nordus-line) 88%, transparent);
+  border-radius: 1.25rem;
+  background: #0a0a0b;
+  box-shadow:
+    0 1px 1px color-mix(in srgb, var(--nordus-ink) 5%, transparent),
+    0 22px 60px color-mix(in srgb, var(--nordus-ink) 10%, transparent);
+}
+
+.nordus-product-shot img {
+  display: block;
+  width: 100%;
+  max-height: 38rem;
+  object-fit: cover;
+}
+
+.nordus-product-shot figcaption {
+  color: var(--nordus-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin-top: 0.65rem;
+  text-align: center;
+}
+
+.nordus-kicker {
+  color: var(--nordus-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nordus-lede {
+  color: var(--nordus-muted);
+  font-size: 1.08rem;
+  line-height: 1.75;
+  max-width: 44rem;
+}
+
+.nordus-stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1.75rem 0;
+}
+
+.nordus-stat {
+  border: 1px solid var(--nordus-line);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--nordus-raised) 78%, transparent);
+  padding: 1rem;
+}
+
+.nordus-stat strong,
+.nordus-stat span {
+  display: block;
+}
+
+.nordus-stat strong {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.nordus-stat span {
+  color: var(--nordus-muted);
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
+}
+
+#nd-sidebar,
+#nd-subnav {
+  background: color-mix(in srgb, var(--nordus-bg) 92%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+#nd-sidebar {
+  border-right-color: var(--nordus-line);
+}
+
+#nd-subnav {
+  border-bottom-color: var(--nordus-line);
+}
+
+.prose :where(h2, h3, h4) {
+  letter-spacing: -0.035em;
+}
+
+.prose :where(a:not([data-card])) {
+  text-decoration-color: color-mix(in srgb, var(--nordus-accent) 45%, transparent);
+  text-underline-offset: 0.2em;
+}
+
+.prose :where(table) {
+  overflow: hidden;
+  border: 1px solid var(--nordus-line);
+  border-radius: 0.9rem;
+}
+
+@media (max-width: 640px) {
+  .nordus-stat-row {
+    grid-template-columns: 1fr;
+  }
+
+  .nordus-product-shot-frame {
+    border-radius: 0.9rem;
+  }
+}

@@ -1,0 +1,236 @@
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
+import { describe, expect, it } from "vitest";
+
+import { EngineMemory } from "./engine-memory.ts";
+import type { Message } from "./store.ts";
+import { turnDoneCount } from "./turn-done.ts";
+import { TurnStops, stoppedTurnOutcome } from "./turn-outcome.ts";
+import { TurnWatchdog, type WatchedTurn } from "./turn-watchdog.ts";
+
+const STALL = 10_000;
+
+function rig() {
+  let now = 0;
+  const stalls: WatchedTurn[] = [];
+  const dog = new TurnWatchdog({
+    stallMs: STALL,
+    checkMs: 60_000,
+    onStall: (turn) => stalls.push(turn),
+    now: () => now,
+  });
+  return { dog, stalls, tick: (ms: number) => (now += ms) };
+}
+
+describe("TurnWatchdog", () => {
+  it("keeps a turn whose own work is still running, until its cap", () => {
+    const { dog, stalls, tick } = rig();
+    let busy = true;
+    dog.watch("t-native", "editordevideo", { capMs: STALL * 10, busy: () => busy });
+    tick(STALL * 3);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    busy = false;
+    tick(STALL - 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(2);
+    dog.sweep();
+    expect(stalls).toEqual([expect.objectContaining({ threadId: "t-native" })]);
+    expect(stalls[0]!.capped).toBeUndefined();
+  });
+
+  it("stops a busy turn at its cap, and says so", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t-cap", "editordevideo", { capMs: STALL * 5, busy: () => true });
+    for (let i = 0; i < 4; i++) { tick(STALL); dog.sweep(); }
+    expect(stalls).toHaveLength(0);
+    tick(STALL);
+    dog.sweep();
+    expect(stalls).toEqual([expect.objectContaining({ threadId: "t-cap", capped: true })]);
+  });
+
+  it("caps even a turn waiting on a person", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t-cap-human", "editordevideo", { capMs: STALL * 2 });
+    dog.setWaitingOnHuman("t-cap-human", true);
+    tick(STALL * 2);
+    dog.sweep();
+    expect(stalls).toEqual([expect.objectContaining({ threadId: "t-cap-human", capped: true })]);
+  });
+
+  it("treats a probe that throws as idle", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t-throws", "editordevideo", { busy: () => { throw new Error("gone"); } });
+    tick(STALL);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+  });
+
+  it("stalls a silent turn once, and only once", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    tick(STALL - 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(2);
+    dog.sweep();
+    expect(stalls).toEqual([expect.objectContaining({ threadId: "t1", botId: "bot1" })]);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+    expect(dog.watching("t1")).toBe(false);
+  });
+
+  it("any event on the thread resets the clock", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    for (let i = 0; i < 10; i++) {
+      tick(STALL - 1);
+      dog.touch("t1");
+    }
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+  });
+
+  it("never stalls a turn waiting on a human, however long they take", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.setWaitingOnHuman("t1", true);
+    tick(STALL * 100);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    dog.setWaitingOnHuman("t1", false);
+    tick(STALL - 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(2);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+  });
+
+  it("a settled turn is forgotten", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.settle("t1");
+    tick(STALL * 2);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+  });
+
+  it("says a turn is waiting exactly while the sweep would spare it", () => {
+    const { dog } = rig();
+    expect(dog.waiting("t1")).toBe(false);
+    dog.watch("t1", "bot1");
+    expect(dog.waiting("t1")).toBe(false);
+    dog.setWaitingOnHuman("t1", true);
+    expect(dog.waiting("t1")).toBe(true);
+    dog.setWaitingOnComputer("t1", true);
+    dog.setWaitingOnHuman("t1", false);
+    expect(dog.waiting("t1")).toBe(true);
+    dog.setWaitingOnComputer("t1", false);
+    expect(dog.waiting("t1")).toBe(false);
+    dog.setWaitingOnHuman("t1", true);
+    dog.settle("t1");
+    expect(dog.waiting("t1")).toBe(false);
+  });
+
+  it("lets the computer wait's own deadline govern, then restarts the stall clock", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    dog.setWaitingOnComputer("t1", true);
+    tick(STALL * 100);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    dog.setWaitingOnHuman("t1", false);
+    tick(STALL * 100);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    dog.setWaitingOnComputer("t1", false);
+    tick(STALL - 1);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(2);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+  });
+
+  it("re-watching a thread replaces the previous turn", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    tick(STALL - 1);
+    dog.watch("t1", "bot2");
+    tick(2);
+    dog.sweep();
+    expect(stalls).toHaveLength(0);
+    tick(STALL);
+    dog.sweep();
+    expect(stalls).toEqual([expect.objectContaining({ botId: "bot2" })]);
+  });
+});
+
+// The harness's stall handler (index.ts), run without starting a server.
+describe("the stall handler", () => {
+  function load(engineMemory = new EngineMemory({ enabled: false })) {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const from = source.indexOf("\nconst TURN_STALL_MS"), to = source.indexOf("\nwatchdog.start();");
+    if (from < 0 || to <= from) throw new Error("Stall handler section moved");
+    const code = ts.transpileModule(`${source.slice(from, to)}\nglobalThis.watchdog = watchdog;`,
+      { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
+    const messages: Message[] = [
+      { id: "a", role: "bot", kind: "activity", at: 1, turnId: "turn-1", tool: { name: "Bash", ok: true, itemId: "i1" } } as Message,
+      { id: "b", role: "bot", kind: "text", at: 2, turnId: "turn-1", text: "Exporting the second half now." } as Message,
+    ];
+    const settled: Array<{ generation?: string; text: string }> = [], delegations: string[] = [], appended: Message[] = [];
+    const context = vm.createContext({
+      process: { env: {} },
+      RoomTurnStallRegistry: class { stall() {} },
+      TurnStops, stoppedTurnOutcome, turnDoneCount, reportsToRequester: () => true,
+      TurnWatchdog: class { options: unknown; constructor(options: { onStall: (turn: WatchedTurn) => void }) { this.options = options; } },
+      store: { messagesFor: () => messages, activePath: () => messages, appendMessage: (_threadId: string, message: Message) => appended.push(message) },
+      turnResourceOwners: new Map(), directTurnGenerationByThread: new Map([["t1", "gen-1"]]), directRequestOwners: new Map(),
+      localVmThreadTargets: new Map(), liveTurnByThread: new Map([["t1", "turn-1"]]), turnUsage: new Map(), turnContext: new Map(),
+      cancelDirectTurnDispatch() {}, revokeInternalCapabilitiesForThread() {}, repeats: { settle() {} },
+      botForThread: () => ({ id: "eli" }), activeRoutineRunForThread: () => undefined,
+      runningTurnInstance: () => ({ adapter: { interruptTurn: async () => {} } }),
+      failedTurnTool: (name: string, flags: { done?: number } = {}) => ({ name, ok: false, ...flags }), reportIncident() {},
+      settleDirectFollowup: (generation: string | undefined, outcome: { text: string }) => settled.push({ generation, text: outcome.text }),
+      finalizeDelegationWatch: (_threadId: string, _ok: boolean, _reply: string, why: string) => delegations.push(why),
+      setTimeout: () => ({ unref() {} }),
+      engineMemory,
+    });
+    vm.runInContext(code, context, { filename: "index.ts (stall handler fixture)" });
+    return { context, settled, delegations, appended };
+  }
+
+  it("tells a stalled turn's requester why it stopped and what it did", () => {
+    const { context, settled, delegations } = load();
+    context.watchdog.options.onStall({ threadId: "t1", botId: "eli" });
+    const told = 'No activity for 20 minutes — the turn was stopped. Before it stopped it made 1 tool call: Bash ×1.\nIts last message, quoted: "Exporting the second half now."';
+    expect(settled).toEqual([{ generation: "gen-1", text: told }]);
+    expect(delegations).toEqual([]);
+  });
+
+  it("marks the stalled turn's failure row with the tool calls it had already started", () => {
+    const { context, appended } = load();
+    context.watchdog.options.onStall({ threadId: "t1", botId: "eli" });
+    expect(appended.map((message) => message.tool)).toEqual([expect.objectContaining({ ok: false, done: 1 })]);
+  });
+
+  it("says when the Cloud ran out of memory while the stalled turn ran", () => {
+    const memory = new EngineMemory({ enabled: true, read: () => ({ totalBytes: 4 * 1024 ** 3, availableBytes: 0, swapFreeBytes: 0, oomKills: 0, fullStall10: 60 }),
+      groups: () => new Map(), log: () => {} });
+    memory.turnStarted("t1");
+    memory.tick();
+    const { context, settled } = load(memory);
+    context.watchdog.options.onStall({ threadId: "t1", botId: "eli" });
+    expect(settled[0]!.text).toMatch(/^No activity for 20 minutes — the turn was stopped\. This Cloud ran out of memory while 1 task ran at once \(not a problem with the AI provider\)\. Before it stopped/);
+  });
+
+  it("gives a stopped turn's own end the cause the harness noted before interrupting it", () => {
+    const { context } = load();
+    expect(context.stoppedTurnText("t1", "turn-1", undefined, "interrupted")).toMatch(/^The turn did not complete \(interrupted\)\. /);
+    vm.runInContext('turnStops.stopping("t1", "turn-1", "turn interrupted — the Company connection changed")', context);
+    expect(context.stoppedTurnText("t1", "turn-1", undefined, "interrupted")).toMatch(/^Turn interrupted — the Company connection changed\. Before it stopped/);
+  });
+});

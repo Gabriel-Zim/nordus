@@ -1,0 +1,925 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+import { writeFileAtomic } from "./atomic.ts";
+import { DATA_DIR } from "./config.ts";
+import { CaptureBuffer, captureItemLimit, capturePrompt, captureSize, newCandidates, parseCandidates, type Candidate, type CaptureBatch, type CaptureTurn } from "./memory-capture.ts";
+import { gateCapture, inNightWindow, type NightWindow } from "./memory-gate.ts";
+import { factIdentity, lineFactIdentity, notebookIdentities } from "./memory-entries.ts";
+import { mergeTopicText } from "./memory-topics.ts";
+import { applyMoves, MAX_MOVES, organizeCandidates, organizePrompt, parseMoves } from "./memory-organize.ts";
+import { recordMemoryChange } from "./memory-journal.ts";
+import type { MemoryEntryLine } from "./memory-entries.ts";
+import { applyTidy, contradictionCandidates, contradictionPrompt, parseContradictions, planChanges, planTidy, type Contradiction } from "./memory-tidy.ts";
+import { appendMemoryArchive, ARCHIVE_TOPIC, ensureWorkspace, listMemoryTopics, memoryDate, memoryEntry, memoryTopicIndex, readMemoryText, updateMemory, workspaceDir, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
+
+export const CAPTURE_MAX_TURNS = 6;
+/** One capture call reads at most this much of one bot's waiting chats; the rest wait for the next call. */
+export const CAPTURE_CALL_MAX_TURNS = 2 * CAPTURE_MAX_TURNS;
+export const CAPTURE_CALL_MAX_BYTES = 24_000;
+/** A chat that goes quiet takes along its bot's other chats that would go quiet within this long. */
+export const CAPTURE_GATHER_MS = 15_000;
+export const MODEL_TIMEOUT_MS = 60_000;
+export const MAX_TOPIC_CHECKS = 4;
+export const TIDY_CHECK_MS = 10 * 60_000;
+export const MIN_ENTRIES_FOR_CONTRADICTIONS = 5;
+const ARCHIVE_PATH = `memory/${ARCHIVE_TOPIC}`;
+export const MAX_PENDING_THREADS = 50;
+export const TOPIC_MAX_BYTES = 64 * 1024;
+/** A conversation waiting for the night keeps at most this many turns; the ones with the least said are dropped first. */
+export const NIGHT_MAX_TURNS = 12;
+/** A conversation waiting for the night is read anyway after this long, so a missed window never strands it. */
+export const NIGHT_MAX_AGE_MS = 30 * 60 * 60_000;
+/** A nightly tidy that was missed for this long runs outside the window. */
+export const TIDY_CATCH_UP_MS = 36 * 60 * 60_000;
+
+export interface UpkeepEngine {
+  generateText?: (prompt: string, options?: { signal?: AbortSignal }) => Promise<string>;
+}
+
+export interface UpkeepBot {
+  id: string;
+  name: string;
+  memoryUpkeep?: boolean;
+  memoryEnabled?: boolean;
+}
+
+export function upkeepEnabled(bot: Pick<UpkeepBot, "memoryUpkeep" | "memoryEnabled"> | undefined): bot is UpkeepBot {
+  return Boolean(bot) && bot!.memoryUpkeep !== false && bot!.memoryEnabled !== false;
+}
+
+export interface UpkeepDeps {
+  bots: () => readonly UpkeepBot[];
+  bot: (id: string) => UpkeepBot | undefined;
+  engine: (botId: string) => UpkeepEngine | null;
+  busy: (botId: string) => boolean;
+  addToAboutMe: (from: { botId: string; botName: string }, texts: readonly string[]) => number;
+  sourceLabel: (botId: string, threadId: string) => string;
+  /** Asked again at capture, so a turn queued before a visibility change is dropped. */
+  mayCapture?: (botId: string, threadId: string) => boolean;
+  restoreTurn?: (botId: string, threadId: string, turnId: string) => CaptureTurn | null;
+  /** Nordus: the clients a conversation works for, so what is learned there goes to that client's memory topic. */
+  captureClients?: (botId: string, threadId: string) => CaptureClients | null;
+  quietMs: () => number;
+  tidyHour: () => number;
+  /** The night window: what is not urgent waits for it, one capture call per bot and conversation, and the tidy-up runs in it.
+   * Absent or null, every conversation is captured as soon as it goes quiet and the tidy-up follows tidyHour. */
+  night?: () => NightWindow | null;
+  writing?: <T>(botId: string, write: () => T) => T;
+  now?: () => Date;
+  log?: (line: string) => void;
+}
+
+export interface CaptureClients {
+  /** The clients the conversation works for; empty when none. */
+  active: readonly string[];
+  /** The clients a fact names. */
+  named: (text: string) => string[];
+  /** A client's memory topic, file name and front matter. */
+  topic: (slug: string) => { name: string; title: string; aliases: string[] };
+  name: (slug: string) => string;
+  lens?: { filterLines(text: string): string; hidesTopic(name: string, header: { title?: string; description?: string; aliases: string[] }): boolean };
+}
+
+/** Which client's memory a captured fact belongs to: the one it names, else the conversation's only client unless the
+ * fact holds for every client. A fact naming several clients, or left unplaced among several, is not kept at all. */
+export function routeCandidate(candidate: Candidate, clients: CaptureClients | null): { client?: string; drop?: true } {
+  if (!clients) return {};
+  const named = clients.named(candidate.text);
+  if (named.length > 1) return { drop: true };
+  if (named.length === 1) return { client: named[0] };
+  if (candidate.general) return {};
+  if (clients.active.length === 1) return { client: clients.active[0] };
+  return clients.active.length > 1 ? { drop: true } : {};
+}
+
+export interface TidyReport {
+  at: number;
+  expired: number;
+  duplicates: number;
+  superseded: number;
+  deferred: number;
+  organized?: number;
+  contradictionsChecked: boolean;
+  topicChecks?: number;
+  topicsDeferred?: number;
+  note?: string;
+}
+
+export interface CaptureReport {
+  at: number;
+  added: number;
+  topics: number;
+  aboutMe: number;
+  organized?: number;
+  note?: string;
+}
+
+interface UpkeepState {
+  /** `checked` holds, per memory file, a hash of the notes the last contradiction check read, so unchanged notes cost no call. */
+  bots: Record<string, { lastTidy?: TidyReport; lastCapture?: CaptureReport; core?: string[]; topicCursor?: string; checked?: Record<string, string> }>;
+}
+
+function notesHash(entries: readonly MemoryEntryLine[]): string {
+  return createHash("sha1").update(entries.map((entry) => entry.body).join("\n")).digest("hex");
+}
+
+const MAX_CORE = 500;
+
+function statePath(): string {
+  return join(DATA_DIR, "memory-upkeep.json");
+}
+
+function loadState(): UpkeepState {
+  try {
+    const parsed = JSON.parse(readFileSync(statePath(), "utf8")) as UpkeepState;
+    return parsed && typeof parsed.bots === "object" && parsed.bots ? parsed : { bots: {} };
+  } catch {
+    return { bots: {} };
+  }
+}
+
+function saveState(state: UpkeepState): void {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+    writeFileAtomic(statePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  } catch {
+  }
+}
+
+interface PendingCapture {
+  batches: { botId: string; threadId: string; turnIds: string[] }[];
+}
+
+function pendingPath(): string {
+  return join(DATA_DIR, "memory-capture-pending.json");
+}
+
+function savePending(batches: readonly CaptureBatch[]): void {
+  const byThread = new Map<string, { botId: string; threadId: string; turnIds: string[] }>();
+  for (const batch of batches) {
+    const ids = batch.turns.map((turn) => turn.turnId).filter((id): id is string => typeof id === "string" && id.length > 0);
+    if (!ids.length) continue;
+    const key = `${batch.botId}\n${batch.threadId}`;
+    const entry = byThread.get(key) ?? { botId: batch.botId, threadId: batch.threadId, turnIds: [] };
+    entry.turnIds.push(...ids.filter((id) => !entry.turnIds.includes(id)));
+    byThread.set(key, entry);
+  }
+  if (!byThread.size) return;
+  const state: PendingCapture = {
+    batches: [...byThread.values()].slice(-MAX_PENDING_THREADS).map((entry) => ({ ...entry, turnIds: entry.turnIds.slice(-CAPTURE_MAX_TURNS) })),
+  };
+  try {
+    mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+    writeFileAtomic(pendingPath(), `${JSON.stringify(state)}\n`, { mode: 0o600 });
+  } catch {
+  }
+}
+
+/** Removed before replay, so a start that fails part way never replays them twice. */
+function takePending(): PendingCapture["batches"] {
+  let raw: string;
+  try {
+    raw = readFileSync(pendingPath(), "utf8");
+  } catch {
+    return [];
+  }
+  rmSync(pendingPath(), { force: true });
+  try {
+    const parsed = JSON.parse(raw) as Partial<PendingCapture>;
+    if (!Array.isArray(parsed?.batches)) return [];
+    return parsed.batches
+      .filter((batch) => batch && typeof batch.botId === "string" && typeof batch.threadId === "string" && Array.isArray(batch.turnIds))
+      .slice(-MAX_PENDING_THREADS)
+      .map((batch) => ({ botId: batch.botId, threadId: batch.threadId, turnIds: batch.turnIds.filter((id): id is string => typeof id === "string").slice(-CAPTURE_MAX_TURNS) }));
+  } catch {
+    return [];
+  }
+}
+
+function dropPending(botId: string): void {
+  let parsed: Partial<PendingCapture>;
+  try {
+    parsed = JSON.parse(readFileSync(pendingPath(), "utf8")) as Partial<PendingCapture>;
+  } catch {
+    return;
+  }
+  if (!Array.isArray(parsed?.batches)) return;
+  const kept = parsed.batches.filter((batch) => batch?.botId !== botId);
+  if (kept.length === parsed.batches.length) return;
+  try {
+    if (kept.length) writeFileAtomic(pendingPath(), `${JSON.stringify({ batches: kept })}\n`, { mode: 0o600 });
+    else rmSync(pendingPath(), { force: true });
+  } catch {
+    // best effort: a deleted bot's saved turns are refused at capture anyway
+  }
+}
+
+function readRaw(botId: string, relative: string): string | null {
+  try {
+    return readMemoryText(join(workspaceDir(botId), relative));
+  } catch {
+    return null;
+  }
+}
+
+interface NightFile {
+  entries: { botId: string; threadId: string; turnIds: string[]; at: number }[];
+}
+
+function nightPath(): string {
+  return join(DATA_DIR, "memory-capture-night.json");
+}
+
+function saveNight(entries: readonly { botId: string; threadId: string; turns: readonly CaptureTurn[]; at: number }[]): void {
+  try {
+    if (!entries.length) {
+      rmSync(nightPath(), { force: true });
+      return;
+    }
+    const file: NightFile = {
+      entries: entries
+        .map((entry) => ({ botId: entry.botId, threadId: entry.threadId, at: entry.at, turnIds: entry.turns.map((turn) => turn.turnId).filter((id): id is string => typeof id === "string" && id.length > 0).slice(-NIGHT_MAX_TURNS) }))
+        .filter((entry) => entry.turnIds.length > 0),
+    };
+    mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+    writeFileAtomic(nightPath(), `${JSON.stringify(file)}\n`, { mode: 0o600 });
+  } catch {
+    // best effort: the entries are still in memory, and a restart only loses the ones that never reached disk
+  }
+}
+
+function loadNight(): NightFile["entries"] {
+  try {
+    const parsed = JSON.parse(readFileSync(nightPath(), "utf8")) as Partial<NightFile>;
+    if (!Array.isArray(parsed?.entries)) return [];
+    return parsed.entries
+      .filter((entry) => entry && typeof entry.botId === "string" && typeof entry.threadId === "string" && Array.isArray(entry.turnIds))
+      .map((entry) => ({ botId: entry.botId, threadId: entry.threadId, at: typeof entry.at === "number" ? entry.at : Date.now(), turnIds: entry.turnIds.filter((id): id is string => typeof id === "string").slice(-NIGHT_MAX_TURNS) }));
+  } catch {
+    return [];
+  }
+}
+
+async function askModel(engine: UpkeepEngine, prompt: string, timeoutMs = MODEL_TIMEOUT_MS): Promise<string | null> {
+  if (!engine.generateText) return null;
+  const expiry = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new DOMException("The background model call timed out.", "TimeoutError");
+      expiry.abort(error);
+      reject(error);
+    }, timeoutMs);
+    timer.unref?.();
+  });
+  try {
+    const answer = await Promise.race([engine.generateText(prompt, { signal: expiry.signal }), expired]);
+    return typeof answer === "string" ? answer : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A flushed chat waiting for its capture call; `done` answers a caller of `capture`. */
+interface Waiting {
+  batch: CaptureBatch;
+  done?: { resolve: (report: CaptureReport) => void; reject: (error: unknown) => void };
+}
+
+function callBytes(batch: CaptureBatch): number {
+  const { said, replied } = captureSize(batch.turns);
+  return said + replied;
+}
+
+export const NO_TEXT_ENGINE = "This bot's engine cannot make the quick background model call upkeep uses, so only expired notes and exact duplicates are tidied.";
+
+export interface MemoryUpkeep {
+  noteTurn(botId: string, threadId: string, turn: CaptureTurn): void;
+  flushThread(threadId: string): void;
+  dropBot(botId: string): void;
+  forgetBot(botId: string): void;
+  capture(batch: CaptureBatch): Promise<CaptureReport>;
+  tidy(botId: string): Promise<TidyReport>;
+  status(botId: string): { lastTidy?: TidyReport; lastCapture?: CaptureReport; modelSteps: boolean };
+  /** Conversations waiting for the night window, by bot id (all bots when omitted). */
+  waitingForNight(botId?: string): number;
+  /** Reads the conversations waiting for the night now, whatever the hour (used by tests and the manual route). */
+  drainNight(options?: { force?: boolean }): number;
+  tick(): Promise<void>;
+  start(): void;
+  stop(): void;
+  pause(): void;
+  resume(): void;
+  idle(): Promise<void>;
+}
+
+export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
+  const now = () => deps.now?.() ?? new Date();
+  const log = (line: string) => deps.log?.(line);
+  const inflight = new Set<Promise<unknown>>();
+  const tidying = new Map<string, Promise<TidyReport>>();
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let paused = false;
+  // Flushed chats wait here, also through a backup; one worker drains it, one capture call at a time.
+  const queue: Waiting[] = [];
+  let worker: Promise<void> | null = null;
+  // Conversations the gate let wait for the night: one entry per bot and conversation, so one capture call each.
+  const nightQueue = new Map<string, { botId: string; threadId: string; turns: CaptureTurn[]; at: number }>();
+  const nightKey = (botId: string, threadId: string) => `${botId}\n${threadId}`;
+  const saveNightQueue = () => saveNight([...nightQueue.values()]);
+
+  const record = (botId: string, patch: { lastTidy?: TidyReport; lastCapture?: CaptureReport; topicCursor?: string; checked?: Record<string, string> }) => {
+    // a capture or tidy that was out when its bot was deleted leaves nothing behind
+    if (!deps.bot(botId)) return;
+    const state = loadState();
+    state.bots[botId] = { ...state.bots[botId], ...patch };
+    saveState(state);
+  };
+
+  const track = <T>(promise: Promise<T>): Promise<T> => {
+    inflight.add(promise);
+    void promise.finally(() => inflight.delete(promise)).catch(() => undefined);
+    return promise;
+  };
+
+  const writing = deps.writing ?? (<T>(_botId: string, write: () => T): T => write());
+
+  /** Files one conversation's items as that conversation's: its source label, its thread on every journal row.
+   * Nordus: in a client's conversation each fact goes to the client it names (never mixing clients), and a general fact
+   * keeps no client's room or chat name. */
+  function fileCandidates(botId: string, threadId: string, candidates: readonly Candidate[], clients: CaptureClients | null = null): { added: number; topics: number } {
+    const before = readRaw(botId, "MEMORY.md");
+    const archiveBefore = readRaw(botId, ARCHIVE_PATH);
+    const fresh = newCandidates(candidates, before ?? "");
+    const source = `${deps.sourceLabel(botId, threadId)} (noticed)`;
+    const generalSource = clients?.active.length ? "a client's conversation (noticed)" : source;
+    let added = 0;
+    const byTopic = new Map<string, Candidate[]>();
+    const clientTopics = new Map<string, { title: string; aliases: string[]; own: boolean }>();
+    for (const found of fresh) {
+      const route = routeCandidate(found, clients);
+      if (route.drop) continue;
+      let candidate = found;
+      if (route.client && clients) {
+        const topic = clients.topic(route.client);
+        clientTopics.set(topic.name, { title: topic.title, aliases: topic.aliases, own: clients.active.includes(route.client) });
+        candidate = { ...found, topic: topic.name, topicAliases: [], aboutUser: false };
+      }
+      if (candidate.topic) {
+        byTopic.set(candidate.topic, [...(byTopic.get(candidate.topic) ?? []), candidate]);
+        continue;
+      }
+      if (updateMemory(botId, { action: "append", text: candidate.text, ...(candidate.until ? { until: candidate.until } : {}) }, { source: generalSource, now: now() }).ok) added += 1;
+    }
+    // The archive is journaled before MEMORY.md, so undoing the newest row brings moved entries back.
+    recordMemoryChange(botId, { path: ARCHIVE_PATH, actor: "upkeep", via: "capture", threadId, before: archiveBefore, after: readRaw(botId, ARCHIVE_PATH) });
+    if (added) recordMemoryChange(botId, { path: "MEMORY.md", actor: "upkeep", via: "capture", threadId, before, after: readRaw(botId, "MEMORY.md") });
+    const existing = new Map(listMemoryTopics(botId).map((topic) => [topic.name.toLowerCase(), topic.name]));
+    let topics = 0;
+    for (const [wanted, group] of byTopic) {
+      const name = existing.get(wanted) ?? wanted;
+      const path = `memory/${name}`;
+      const current = readRaw(botId, path);
+      if (current !== null && Buffer.byteLength(current, "utf8") > TOPIC_MAX_BYTES) continue;
+      const seen = notebookIdentities(current ?? "");
+      const lines = group
+        .filter((candidate) => !seen.has(factIdentity(candidate.text)))
+        .map((candidate) => memoryEntry(candidate.text, { source: clientTopics.get(name)?.own ? source : generalSource, now: now(), ...(candidate.until ? { until: candidate.until } : {}) }));
+      if (!lines.length) continue;
+      const clientTopic = clientTopics.get(name);
+      const title = clientTopic?.title ?? name.replace(/\.md$/, "").replace(/-/g, " ");
+      const aliases = clientTopic?.aliases ?? [...new Set(group.flatMap((candidate) => candidate.topicAliases ?? []))];
+      try {
+        writeMemoryTopic(botId, name, mergeTopicText(current, { title, aliases, lines }));
+      } catch {
+        continue;
+      }
+      recordMemoryChange(botId, { path, actor: "upkeep", via: "capture", threadId, before: current, after: readRaw(botId, path) });
+      existing.set(name.toLowerCase(), name);
+      topics += lines.length;
+    }
+    return { added, topics };
+  }
+
+  /**
+   * Which conversation each item came from. With several in one call and no valid "from", the guess is the
+   * one with the most said, and a guess is used only where it cannot matter: the item is kept only if every
+   * conversation still feeds memory, and reaches About me only if every one is the owner's own.
+   */
+  function attribute(candidates: readonly Candidate[], conversations: readonly CaptureBatch[], still: readonly boolean[]) {
+    const owner = conversations.map((conversation) => conversation.turns.every((turn) => turn.owner !== false));
+    const sizes = conversations.map((conversation) => captureSize(conversation.turns).said);
+    const guess = sizes.indexOf(Math.max(...sizes));
+    return candidates.flatMap((candidate) => {
+      const named = conversations.length === 1 ? 0 : candidate.from !== undefined && candidate.from <= conversations.length ? candidate.from - 1 : -1;
+      const sure = named >= 0;
+      const at = sure ? named : guess;
+      if (!still[at] || (!sure && !still.every(Boolean))) return [];
+      // Only the owner's own words reach About me: another person's facts are not the owner's profile.
+      return [{ candidate, at, aboutMe: candidate.aboutUser && owner[at]! && (sure || owner.every(Boolean)) }];
+    });
+  }
+
+  /** One model call for one bot's waiting chats, each read as its own conversation. */
+  async function captureCall(batches: readonly CaptureBatch[]): Promise<CaptureReport> {
+    const bot = deps.bot(batches[0]!.botId);
+    const at = now().getTime();
+    const off: CaptureReport = { at, added: 0, topics: 0, aboutMe: 0, note: "upkeep is off" };
+    if (!upkeepEnabled(bot)) return off;
+    const byThread = new Map<string, CaptureBatch>();
+    for (const batch of batches) {
+      const same = byThread.get(batch.threadId);
+      if (same) same.turns.push(...batch.turns);
+      else byThread.set(batch.threadId, { ...batch, turns: [...batch.turns] });
+    }
+    const allowed = (threadId: string) => deps.mayCapture?.(bot.id, threadId) ?? true;
+    const refused: CaptureReport = { at, added: 0, topics: 0, aboutMe: 0, note: "this conversation no longer feeds the bot's memory" };
+    const conversations = [...byThread.values()].filter((conversation) => allowed(conversation.threadId));
+    if (!conversations.length) return refused;
+    const engine = deps.engine(bot.id);
+    if (!engine?.generateText) {
+      const report = { at, added: 0, topics: 0, aboutMe: 0, note: NO_TEXT_ENGINE };
+      record(bot.id, { lastCapture: report });
+      return report;
+    }
+    ensureWorkspace(bot.id);
+    const today = memoryDate(now());
+    // Nordus: a client's conversation is read alone (takeCall), so its facts never mix with another chat's or client's.
+    const clients = conversations.length === 1 ? deps.captureClients?.(bot.id, conversations[0]!.threadId) ?? null : null;
+    const notebook = readRaw(bot.id, "MEMORY.md") ?? "";
+    const answer = await askModel(engine, capturePrompt({
+      botName: bot.name,
+      conversations: conversations.map((conversation) => conversation.turns),
+      notebook: clients?.lens ? clients.lens.filterLines(notebook) : notebook,
+      today,
+      topics: memoryTopicIndex(bot.id, clients?.lens),
+      ...(clients?.active.length === 1 ? { client: clients.name(clients.active[0]!) } : {}),
+    }));
+    if (answer === null) {
+      const report = { at, added: 0, topics: 0, aboutMe: 0, note: "The capture call did not answer in time." };
+      record(bot.id, { lastCapture: report });
+      return report;
+    }
+    if (paused) {
+      queue.unshift(...conversations.map((batch) => ({ batch })));
+      return { at, added: 0, topics: 0, aboutMe: 0, note: "deferred until the backup finishes" };
+    }
+    // Re-read after the await; from here to the journal rows there is no await, so no write interleaves.
+    if (!upkeepEnabled(deps.bot(bot.id))) return off;
+    const still = conversations.map((conversation) => allowed(conversation.threadId));
+    if (!still.some(Boolean)) return refused;
+    const filed = attribute(parseCandidates(answer, today, captureItemLimit(conversations.length)), conversations, still);
+    const { added, topics } = writing(bot.id, () => {
+      let added = 0;
+      let topics = 0;
+      conversations.forEach((conversation, i) => {
+        const own = filed.filter((item) => item.at === i).map((item) => item.candidate);
+        if (!own.length) return;
+        const result = fileCandidates(bot.id, conversation.threadId, own, clients);
+        added += result.added;
+        topics += result.topics;
+      });
+      return { added, topics };
+    });
+    // A client's fact never reaches About me, which every bot reads in every conversation.
+    const learned = filed.filter((item) => item.aboutMe && !routeCandidate(item.candidate, clients).client && !routeCandidate(item.candidate, clients).drop).map((item) => item.candidate.text);
+    const aboutMe = learned.length ? deps.addToAboutMe({ botId: bot.id, botName: bot.name }, learned) : 0;
+    const organized = await organize(bot.id);
+    const report: CaptureReport = { at, added, topics, aboutMe, organized };
+    record(bot.id, { lastCapture: report });
+    if (added || topics || aboutMe) log(`memory upkeep: noticed ${added} fact(s) for MEMORY.md, ${topics} for topic files and ${aboutMe} for About me — ${bot.name} (${bot.id}) from ${conversations.map((conversation) => conversation.threadId).join(", ")}`);
+    return report;
+  }
+
+  /** Nordus: a conversation that works for clients (or under a client lens) is read in a call of its own. */
+  function clientBound(batch: CaptureBatch): boolean {
+    return Boolean(deps.captureClients?.(batch.botId, batch.threadId));
+  }
+
+  /** The first waiting batch, with its bot's other waiting batches that fit in the same call. */
+  function takeCall(): Waiting[] {
+    const first = queue.shift()!;
+    const call = [first];
+    if (clientBound(first.batch)) return call;
+    let turns = first.batch.turns.length;
+    let bytes = callBytes(first.batch);
+    for (let i = 0; i < queue.length;) {
+      const next = queue[i]!;
+      const size = callBytes(next.batch);
+      if (next.batch.botId === first.batch.botId && turns + next.batch.turns.length <= CAPTURE_CALL_MAX_TURNS && bytes + size <= CAPTURE_CALL_MAX_BYTES && !clientBound(next.batch)) {
+        call.push(...queue.splice(i, 1));
+        turns += next.batch.turns.length;
+        bytes += size;
+      } else i += 1;
+    }
+    return call;
+  }
+
+  async function work(): Promise<void> {
+    try {
+      // chats flushed together are all queued before the first call takes its share
+      await Promise.resolve();
+      while (!paused && queue.length) {
+        const call = takeCall();
+        try {
+          const report = await captureCall(call.map((entry) => entry.batch));
+          for (const entry of call) entry.done?.resolve(report);
+        } catch (error) {
+          log(`memory upkeep: capture failed for ${call[0]!.batch.botId}: ${(error as Error).message}`);
+          for (const entry of call) entry.done?.reject(error);
+        }
+      }
+    } finally {
+      worker = null;
+    }
+  }
+
+  function kick(): void {
+    if (!worker && !paused && queue.length) worker = track(work());
+  }
+
+  function enqueue(entry: Waiting): void {
+    queue.push(entry);
+    kick();
+  }
+
+  function dropQueued(botId: string): void {
+    let droppedNight = false;
+    for (const [key, entry] of nightQueue) {
+      if (entry.botId !== botId) continue;
+      nightQueue.delete(key);
+      droppedNight = true;
+    }
+    if (droppedNight) saveNightQueue();
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (queue[i]!.batch.botId !== botId) continue;
+      const [entry] = queue.splice(i, 1);
+      entry!.done?.resolve({ at: now().getTime(), added: 0, topics: 0, aboutMe: 0, note: "upkeep is off" });
+    }
+  }
+
+  /** Keeps a conversation for the night. Over the cap, the turns with the least said by the person go first. */
+  function holdForNight(batch: CaptureBatch): void {
+    const key = nightKey(batch.botId, batch.threadId);
+    const held = nightQueue.get(key);
+    const seen = new Set((held?.turns ?? []).map((turn) => turn.turnId).filter(Boolean));
+    let turns = [...(held?.turns ?? []), ...batch.turns.filter((turn) => !turn.turnId || !seen.has(turn.turnId))];
+    if (turns.length > NIGHT_MAX_TURNS) {
+      const drop = new Set([...turns.keys()].sort((x, y) => captureSize([turns[x]!]).said - captureSize([turns[y]!]).said || x - y).slice(0, turns.length - NIGHT_MAX_TURNS));
+      turns = turns.filter((_, index) => !drop.has(index));
+    }
+    nightQueue.set(key, { botId: batch.botId, threadId: batch.threadId, turns, at: held?.at ?? now().getTime() });
+    saveNightQueue();
+  }
+
+  /** What the person said to remember reaches the call now, together with what the same conversation had waiting. */
+  function takeHeld(batch: CaptureBatch): CaptureBatch {
+    const key = nightKey(batch.botId, batch.threadId);
+    const held = nightQueue.get(key);
+    if (!held) return batch;
+    nightQueue.delete(key);
+    saveNightQueue();
+    const seen = new Set(batch.turns.map((turn) => turn.turnId).filter(Boolean));
+    return { ...batch, turns: [...held.turns.filter((turn) => !turn.turnId || !seen.has(turn.turnId)), ...batch.turns] };
+  }
+
+  function drainNight(options: { force?: boolean } = {}): number {
+    const window = deps.night?.();
+    const inside = options.force || !window || inNightWindow(now(), window);
+    let moved = 0;
+    for (const [key, entry] of nightQueue) {
+      if (!inside && now().getTime() - entry.at < NIGHT_MAX_AGE_MS) continue;
+      nightQueue.delete(key);
+      if (!upkeepEnabled(deps.bot(entry.botId))) continue;
+      enqueue({ batch: { botId: entry.botId, threadId: entry.threadId, turns: entry.turns } });
+      moved += 1;
+    }
+    if (moved || !nightQueue.size) saveNightQueue();
+    return moved;
+  }
+
+  const buffer = new CaptureBuffer({
+    quietMs: deps.quietMs,
+    maxTurns: CAPTURE_MAX_TURNS,
+    gatherMs: CAPTURE_GATHER_MS,
+    onFlush: (batch) => {
+      // The gate decides without a model: nothing worth keeping costs no call; a request to remember, a correction or a
+      // decision is captured now; the rest waits for the night and becomes one call per bot and conversation.
+      const verdict = gateCapture(batch.turns);
+      if (verdict.action === "skip") {
+        if (verdict.reason !== "trivial") log(`memory upkeep: gate skipped a conversation (${verdict.reason}) — ${deps.bot(batch.botId)?.name ?? batch.botId} (${batch.botId}) from ${batch.threadId}`);
+        return;
+      }
+      if (verdict.action === "night" && deps.night?.()) {
+        holdForNight(batch);
+        return;
+      }
+      enqueue({ batch: takeHeld(batch) });
+    },
+  });
+
+  async function organize(botId: string): Promise<number> {
+    const engine = deps.engine(botId);
+    if (!engine?.generateText) return 0;
+    const today = memoryDate(now());
+    const state = loadState();
+    const core = new Set(state.bots[botId]?.core ?? []);
+    const first = readRaw(botId, "MEMORY.md") ?? "";
+    const candidates = organizeCandidates(first, today, core);
+    if (!candidates.length) return 0;
+    const answer = await askModel(engine, organizePrompt(candidates, memoryTopicIndex(botId)));
+    if (answer === null || paused || !upkeepEnabled(deps.bot(botId))) return 0;
+    const before = readRaw(botId, "MEMORY.md") ?? "";
+    if (before !== first) return 0;
+    const proposed = parseMoves(answer, candidates);
+    if (proposed === null) return 0;
+    const moved = new Set(proposed.map((move) => move.entry.line));
+    const moves = proposed.slice(0, MAX_MOVES);
+    const judgedCore = candidates.filter((entry) => !moved.has(entry.line)).map((entry) => factIdentity(entry.body));
+    const saved = loadState();
+    saved.bots[botId] = { ...saved.bots[botId], core: [...new Set([...(saved.bots[botId]?.core ?? []), ...judgedCore])].slice(-MAX_CORE) };
+    saveState(saved);
+    if (!moves.length) return 0;
+    return writing(botId, () => {
+      const { byTopic } = applyMoves(before, moves);
+      const written = new Set<string>();
+      const existing = new Map(listMemoryTopics(botId).map((topic) => [topic.name.toLowerCase(), topic.name]));
+      let count = 0;
+      for (const [wanted, group] of byTopic) {
+        const name = existing.get(wanted) ?? wanted;
+        const path = `memory/${name}`;
+        const current = readRaw(botId, path);
+        const seen = notebookIdentities(current ?? "");
+        const lines = group.lines.filter((line) => !seen.has(lineFactIdentity(line)));
+        if (lines.length) {
+          try {
+            writeMemoryTopic(botId, name, mergeTopicText(current, { title: name.replace(/\.md$/, "").replace(/-/g, " "), aliases: group.aliases, lines }));
+          } catch (error) {
+            log(`memory upkeep: could not write ${path}; kept its entries in MEMORY.md: ${(error as Error).message}`);
+            continue;
+          }
+          recordMemoryChange(botId, { path, actor: "upkeep", via: "organize", before: current, after: readRaw(botId, path) });
+        }
+        existing.set(name.toLowerCase(), name);
+        written.add(wanted);
+        count += group.lines.length;
+      }
+      if (!written.size) return 0;
+      const { text } = applyMoves(before, moves.filter((move) => written.has(move.topic)));
+      writeMemoryFile(botId, text);
+      recordMemoryChange(botId, { path: "MEMORY.md", actor: "upkeep", via: "organize", before, after: readRaw(botId, "MEMORY.md") });
+      log(`memory upkeep: moved ${count} entr${count === 1 ? "y" : "ies"} from MEMORY.md into topic files for ${deps.bot(botId)?.name ?? botId}`);
+      return count;
+    });
+  }
+
+  function appendArchive(botId: string, archived: readonly string[]): void {
+    const archiveBefore = readRaw(botId, ARCHIVE_PATH);
+    appendMemoryArchive(botId, archived);
+    recordMemoryChange(botId, { path: ARCHIVE_PATH, actor: "upkeep", via: "tidy", before: archiveBefore, after: readRaw(botId, ARCHIVE_PATH) });
+  }
+
+  async function runTidy(botId: string): Promise<TidyReport> {
+    const bot = deps.bot(botId);
+    const at = now().getTime();
+    const today = memoryDate(now());
+    const stopped: TidyReport = { at, expired: 0, duplicates: 0, superseded: 0, deferred: 0, contradictionsChecked: false, note: "Memory upkeep is off or paused; no further changes were made." };
+    if (paused || !upkeepEnabled(bot)) return stopped;
+    ensureWorkspace(botId);
+    const organized = await organize(botId);
+    if (paused || !upkeepEnabled(deps.bot(botId))) return stopped;
+    const first = readRaw(botId, "MEMORY.md") ?? "";
+    const engine = deps.engine(botId);
+    const candidates = contradictionCandidates(first, today);
+    let contradictions: Contradiction[] = [];
+    let contradictionsChecked = false;
+    let note: string | undefined;
+    // Notes no model has read since they last changed cost no call: the answer would be the same.
+    const checked: Record<string, string> = { ...loadState().bots[botId]?.checked };
+    const mainHash = notesHash(candidates);
+    let mainAnswered = false;
+    if (!engine?.generateText) note = NO_TEXT_ENGINE;
+    else if (candidates.length < MIN_ENTRIES_FOR_CONTRADICTIONS) note = `Contradictions are checked from ${MIN_ENTRIES_FOR_CONTRADICTIONS} notes on.`;
+    else if (checked["MEMORY.md"] === mainHash) contradictionsChecked = true;
+    else {
+      const answer = await askModel(engine, contradictionPrompt(candidates));
+      if (answer === null) note = "The contradiction check did not answer in time.";
+      else {
+        contradictions = parseContradictions(answer, candidates.length);
+        contradictionsChecked = true;
+        mainAnswered = true;
+      }
+    }
+    if (paused || !upkeepEnabled(deps.bot(botId))) return stopped;
+    // Re-read after the await: if the notes changed, the model's line numbers are stale.
+    const before = readRaw(botId, "MEMORY.md") ?? "";
+    if (before !== first && contradictions.length) {
+      contradictions = [];
+      note = "The notes changed during the check; contradictions wait for the next tidy-up.";
+    }
+    const plan = planTidy(before, today, contradictions);
+    if (planChanges(plan)) {
+      const { text, archived } = applyTidy(before, plan, today);
+      // The archive is written first: a line is never out of MEMORY.md before it is in the archive.
+      writing(botId, () => {
+        if (archived.length) appendArchive(botId, archived);
+        writeMemoryFile(botId, text);
+      });
+      recordMemoryChange(botId, { path: "MEMORY.md", actor: "upkeep", via: "tidy", before, after: readRaw(botId, "MEMORY.md") });
+    }
+    // What the check read is settled once nothing it found was left for later; the notes as they are now are what counts.
+    if (mainAnswered) {
+      if (plan.deferred === 0) checked["MEMORY.md"] = notesHash(contradictionCandidates(readRaw(botId, "MEMORY.md") ?? "", today));
+      else delete checked["MEMORY.md"];
+    }
+    let topicExpired = 0;
+    let topicDuplicates = 0;
+    let topicSuperseded = 0;
+    let topicDeferred = 0;
+    let topicChecks = 0;
+    let topicsDeferred = 0;
+    let topicCursor = loadState().bots[botId]?.topicCursor;
+    const deadline = Date.now() + MODEL_TIMEOUT_MS;
+    const topics = listMemoryTopics(botId).filter(topic => topic.name !== ARCHIVE_TOPIC).sort((a, b) => a.name.localeCompare(b.name));
+    const cursorAt = topics.findIndex(topic => topic.name === topicCursor) + 1;
+    for (const topic of [...topics.slice(cursorAt), ...topics.slice(0, cursorAt)]) {
+      const path = `memory/${topic.name}`;
+      const topicBefore = readRaw(botId, path);
+      if (topicBefore === null) continue;
+      const topicCandidates = contradictionCandidates(topicBefore, today);
+      let topicContradictions: Contradiction[] = [];
+      const topicHash = notesHash(topicCandidates);
+      let topicAnswered = false;
+      if (engine?.generateText && topicCandidates.length >= 2) {
+        const remaining = deadline - Date.now();
+        if (checked[path] === topicHash) contradictionsChecked = true;
+        else if (topicChecks >= MAX_TOPIC_CHECKS || remaining <= 0) topicsDeferred++;
+        else {
+          topicChecks++;
+          topicCursor = topic.name;
+          const answer = await askModel(engine, contradictionPrompt(topicCandidates), remaining);
+          if (paused || !upkeepEnabled(deps.bot(botId))) return stopped;
+          if (readRaw(botId, path) !== topicBefore) {
+            topicsDeferred++;
+            continue;
+          }
+          if (answer !== null) {
+            topicContradictions = parseContradictions(answer, topicCandidates.length);
+            contradictionsChecked = true;
+            topicAnswered = true;
+            if (note?.startsWith("Contradictions are checked from")) note = undefined;
+          } else topicsDeferred++;
+        }
+      }
+      const topicPlan = planTidy(topicBefore, today, topicContradictions, 1);
+      topicSuperseded += topicPlan.superseded.length;
+      topicDeferred += topicPlan.deferred;
+      if (topicAnswered && topicPlan.deferred > 0) delete checked[path];
+      else if (topicAnswered && !planChanges(topicPlan)) checked[path] = topicHash;
+      if (!planChanges(topicPlan)) continue;
+      const tidied = applyTidy(topicBefore, topicPlan, today);
+      writing(botId, () => {
+        if (tidied.archived.length) appendArchive(botId, tidied.archived);
+        writeMemoryTopic(botId, topic.name, tidied.text);
+      });
+      recordMemoryChange(botId, { path, actor: "upkeep", via: "tidy", before: topicBefore, after: readRaw(botId, path) });
+      if (topicAnswered && topicPlan.deferred === 0) checked[path] = notesHash(contradictionCandidates(readRaw(botId, path) ?? "", today));
+      topicExpired += topicPlan.expired.length;
+      topicDuplicates += topicPlan.duplicates.length;
+    }
+    if (topicsDeferred) note = [note, `${topicsDeferred} topic checks deferred because of the budget, a timeout or concurrent edits.`].filter(Boolean).join(" ");
+    const report: TidyReport = {
+      at,
+      expired: plan.expired.length + topicExpired,
+      duplicates: plan.duplicates.length + topicDuplicates,
+      superseded: plan.superseded.length + topicSuperseded,
+      deferred: plan.deferred + topicDeferred,
+      ...(organized ? { organized } : {}),
+      contradictionsChecked,
+      topicChecks,
+      topicsDeferred,
+      ...(note ? { note } : {}),
+    };
+    // a topic file that is gone leaves no hash behind
+    const live = new Set(["MEMORY.md", ...topics.map((topic) => `memory/${topic.name}`)]);
+    for (const path of Object.keys(checked)) if (!live.has(path)) delete checked[path];
+    record(botId, { lastTidy: report, topicCursor, checked });
+    if (report.expired || report.duplicates || report.superseded || organized) log(`memory upkeep: tidied ${bot?.name ?? botId} — ${report.expired} expired, ${report.duplicates} duplicate(s), ${report.superseded} contradicted`);
+    return report;
+  }
+
+  function tidy(botId: string): Promise<TidyReport> {
+    const running = tidying.get(botId);
+    if (running) return running;
+    const promise = track(runTidy(botId)).finally(() => tidying.delete(botId));
+    tidying.set(botId, promise);
+    return promise;
+  }
+
+  function due(botId: string): boolean {
+    const current = now();
+    const last = loadState().bots[botId]?.lastTidy?.at;
+    const night = deps.night?.();
+    if (night) {
+      // The tidy-up runs in the night window; one that was missed for a day and a half runs whenever the bot is free.
+      if (!inNightWindow(current, night) && !(last && current.getTime() - last > TIDY_CATCH_UP_MS)) return false;
+    } else if (current.getHours() < deps.tidyHour()) return false;
+    return !last || memoryDate(new Date(last)) < memoryDate(current);
+  }
+
+  async function tick(): Promise<void> {
+    if (paused) return;
+    drainNight();
+    for (const bot of deps.bots()) {
+      if (paused) return;
+      if (!upkeepEnabled(bot) || deps.busy(bot.id) || !due(bot.id)) continue;
+      try {
+        await tidy(bot.id);
+      } catch (error) {
+        log(`memory upkeep: tidy failed for ${bot.id}: ${(error as Error).message}`);
+      }
+    }
+  }
+
+  return {
+    noteTurn(botId, threadId, turn) {
+      if (!upkeepEnabled(deps.bot(botId))) return;
+      if (!turn.person.trim() && !turn.bot.trim()) return;
+      buffer.add(botId, threadId, turn);
+    },
+    flushThread: (threadId) => buffer.flush(threadId),
+    dropBot(botId) {
+      buffer.dropBot(botId);
+      dropQueued(botId);
+    },
+    forgetBot(botId) {
+      buffer.dropBot(botId);
+      dropQueued(botId);
+      dropPending(botId);
+      const state = loadState();
+      if (!state.bots[botId]) return;
+      delete state.bots[botId];
+      saveState(state);
+    },
+    capture: (batch) => new Promise<CaptureReport>((resolve, reject) => enqueue({ batch, done: { resolve, reject } })),
+    tidy,
+    status(botId) {
+      const { lastTidy, lastCapture } = loadState().bots[botId] ?? {};
+      return { ...(lastTidy ? { lastTidy } : {}), ...(lastCapture ? { lastCapture } : {}), modelSteps: Boolean(deps.engine(botId)?.generateText) };
+    },
+    waitingForNight: (botId) => [...nightQueue.values()].filter((entry) => !botId || entry.botId === botId).length,
+    drainNight,
+    tick,
+    start() {
+      if (timer) return;
+      if (deps.restoreTurn) {
+        try {
+          for (const saved of loadNight()) {
+            if (!upkeepEnabled(deps.bot(saved.botId))) continue;
+            const turns = saved.turnIds.flatMap((turnId) => {
+              const turn = deps.restoreTurn!(saved.botId, saved.threadId, turnId);
+              return turn && (turn.person.trim() || turn.bot.trim()) ? [{ ...turn, turnId }] : [];
+            });
+            if (turns.length) nightQueue.set(nightKey(saved.botId, saved.threadId), { botId: saved.botId, threadId: saved.threadId, turns, at: saved.at });
+          }
+          for (const saved of takePending()) {
+            if (!upkeepEnabled(deps.bot(saved.botId))) continue;
+            for (const turnId of saved.turnIds) {
+              const turn = deps.restoreTurn(saved.botId, saved.threadId, turnId);
+              if (turn && (turn.person.trim() || turn.bot.trim())) buffer.add(saved.botId, saved.threadId, { ...turn, turnId });
+            }
+          }
+        } catch (error) {
+          log(`memory upkeep: could not queue turns saved at the last shutdown: ${(error as Error).message}`);
+        }
+      }
+      timer = setInterval(() => void tick(), TIDY_CHECK_MS);
+      timer.unref?.();
+      const first = setTimeout(() => void tick(), 60_000);
+      first.unref?.();
+    },
+    stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      const queued = queue.splice(0);
+      for (const entry of queued) entry.done?.resolve({ at: now().getTime(), added: 0, topics: 0, aboutMe: 0, note: "kept for the next start" });
+      const waiting = [...queued.map((entry) => entry.batch), ...buffer.drain()];
+      if (deps.restoreTurn) savePending(waiting);
+      saveNightQueue();
+    },
+    pause() {
+      paused = true;
+    },
+    resume() {
+      paused = false;
+      kick();
+    },
+    async idle() {
+      while (inflight.size) await Promise.allSettled(inflight);
+    },
+  };
+}

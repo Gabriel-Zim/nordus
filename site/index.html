@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nordus: o seu time de IA, num app de conversa</title>
+  <meta name="description" content="Robôs que trabalham como funcionários, lado a lado com o seu time. Código aberto, no seu computador ou na sua VPS.">
+  <link rel="icon" href="icon.png">
+  <style>
+    :root { --bg:#0b0b0c; --card:#141416; --line:#26262a; --ink:#f4f4f5; --soft:#a1a1aa; --accent:#f05a1a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+    main { max-width:960px; margin:0 auto; padding:56px 20px 80px; }
+    header { text-align:center; }
+    header img { width:96px; height:96px; }
+    h1 { font-size:44px; margin:12px 0 4px; letter-spacing:-0.02em; }
+    .lead { color:var(--soft); font-size:19px; max-width:640px; margin:0 auto; }
+    .lang { margin-top:10px; font-size:14px; }
+    .lang a { color:var(--soft); }
+    section { margin-top:48px; }
+    h2 { font-size:22px; margin:0 0 14px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; }
+    .card h3 { margin:0 0 6px; font-size:17px; }
+    .card p { margin:0 0 14px; color:var(--soft); font-size:14.5px; }
+    .btn { display:inline-flex; align-items:center; gap:8px; background:var(--accent); color:#fff; text-decoration:none; border:0; border-radius:999px; padding:10px 18px; font-weight:600; font-size:15px; cursor:pointer; }
+    .btn.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); }
+    .btn + .btn { margin-left:6px; }
+    .primary { text-align:center; margin-top:28px; }
+    .primary .note { color:var(--soft); font-size:13px; margin-top:8px; }
+    pre { margin:0; background:#0e0e10; border:1px solid var(--line); border-radius:10px; padding:12px 44px 12px 12px; overflow-x:auto; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; position:relative; white-space:pre; }
+    .copy { position:absolute; top:7px; right:7px; background:#1d1d21; border:1px solid var(--line); color:var(--soft); border-radius:8px; font-size:12px; padding:3px 8px; cursor:pointer; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; }
+    input { flex:1 1 260px; background:#0e0e10; border:1px solid var(--line); color:var(--ink); border-radius:999px; padding:10px 16px; font-size:15px; }
+    .servers { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+    .servers a { color:var(--ink); }
+    .servers button { background:none; border:0; color:var(--soft); cursor:pointer; font-size:13px; }
+    ul.features { columns:2 280px; padding-left:18px; color:var(--soft); }
+    ul.features li { margin-bottom:8px; break-inside:avoid; }
+    ul.features b { color:var(--ink); }
+    footer { margin-top:56px; color:var(--soft); font-size:13px; text-align:center; }
+    footer a { color:var(--soft); }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <h1>Nordus</h1>
+    <p class="lead">O seu time de IA, num app de conversa. Robôs que trabalham como funcionários, cada um com o seu modelo, computador, memória e apps, lado a lado com as pessoas do seu time.</p>
+    <p class="lang"><a href="https://github.com/Gabriel-Zim/nordus">Código no GitHub</a> · <a href="https://github.com/Gabriel-Zim/nordus/blob/main/INSTALL.md">Guia de instalação</a> · <a href="https://github.com/Gabriel-Zim/nordus/blob/main/LEIA-ME.md">Leia-me</a></p>
+    <div class="primary">
+      <a id="main-download" class="btn" href="https://github.com/Gabriel-Zim/nordus/releases/latest">Baixar o Nordus</a>
+      <div id="main-note" class="note">Mac, Windows e Ubuntu · grátis e de código aberto</div>
+    </div>
+  </header>
+
+  <section id="abrir">
+    <h2>Já tenho um servidor Nordus</h2>
+    <div class="card">
+      <p>Cole o endereço do seu Nordus (por exemplo <code>https://203-0-113-7.sslip.io</code> ou o seu domínio). Ele fica guardado neste navegador, e você entra com o Google ou com o link de entrada.</p>
+      <form id="open-form" class="row">
+        <input id="server-url" type="url" inputmode="url" placeholder="https://seu-servidor" required>
+        <button class="btn" type="submit">Abrir meu Nordus</button>
+      </form>
+      <div id="servers" class="servers"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Instale onde quiser</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>No Mac</h3>
+        <p>O app completo, com o servidor embutido.</p>
+        <a class="btn" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus.dmg">Apple silicon</a>
+        <a class="btn ghost" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-intel.dmg">Intel</a>
+        <p style="margin-top:14px">Ou no Terminal:</p>
+        <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash</pre>
+      </div>
+      <div class="card">
+        <h3>No Windows</h3>
+        <p>Instalador para Windows 10 e 11 (x64).</p>
+        <a class="btn" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-setup.exe">Baixar para Windows</a>
+        <p style="margin-top:14px">Ou no PowerShell:</p>
+        <pre>irm https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.ps1 | iex</pre>
+      </div>
+      <div class="card">
+        <h3>Numa VPS, 24 horas</h3>
+        <p>Ubuntu ou Debian. HTTPS automático, mesmo sem domínio, e um link de entrada no fim.</p>
+        <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash -s -- --yes</pre>
+        <p style="margin-top:14px">Com domínio: acrescente <code>--domain nordus.suaempresa.com</code>.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>Ou peça para uma IA</h3>
+      <p>No Claude Code, no Codex ou noutro agente de programação:</p>
+      <pre>Instale o Nordus de https://github.com/Gabriel-Zim/nordus neste computador (ou na minha VPS root@1.2.3.4). Siga o INSTALL.md.</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que vem dentro</h2>
+    <ul class="features">
+      <li><b>Decisões com o Jev.</b> Quem responde, o que pode seguir sem perguntar, e ações críticas (gastar, apagar, enviar, publicar) que sempre esperam uma pessoa.</li>
+      <li><b>Navegador ao vivo.</b> Veja o robô navegar e assuma o controle quando quiser, com logins guardados por perfil.</li>
+      <li><b>Pessoas e robôs na mesma sala.</b> Salas, passagens de trabalho entre robôs e isolamento de cliente.</li>
+      <li><b>Entrar com Google</b> no seu próprio servidor, com lista de quem pode entrar.</li>
+      <li><b>12 robôs prontos:</b> editor de vídeo, tráfego pago, social media, designer, pesquisador, programador e mais.</li>
+      <li><b>Nas assinaturas que você já tem:</b> Claude, Codex, Grok, Gemini e Kimi. Nada de revenda de modelo.</li>
+      <li><b>Um computador para cada robô,</b> memória, rotinas, webhooks e apps conectados.</li>
+      <li><b>Celular:</b> abra o endereço e adicione à tela de início, com avisos.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Licença Apache 2.0 · O Nordus é um fork do <a href="https://github.com/milind-soni/OpenMausBot">OpenMausBot</a>, de Milind Soni e colaboradores.
+  </footer>
+</main>
+<script>
+  const repo = "https://github.com/Gabriel-Zim/nordus/releases/latest/download/";
+  const ua = navigator.userAgent;
+  const main = document.getElementById("main-download");
+  const note = document.getElementById("main-note");
+  if (/Windows/i.test(ua)) { main.href = repo + "Nordus-setup.exe"; main.textContent = "Baixar para Windows"; }
+  else if (/Mac/i.test(ua)) { main.href = repo + "Nordus.dmg"; main.textContent = "Baixar para Mac"; note.textContent = "Mac com Intel? Use o botão Intel abaixo."; }
+  else if (/Linux/i.test(ua) && !/Android/i.test(ua)) { main.href = repo + "Nordus-amd64.deb"; main.textContent = "Baixar para Ubuntu"; }
+
+  const KEY = "nordus.servers";
+  const list = () => { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } };
+  const save = (items) => localStorage.setItem(KEY, JSON.stringify(items.slice(0, 8)));
+  const normalize = (raw) => {
+    let value = raw.trim();
+    if (!/^https?:\/\//i.test(value)) value = "https://" + value;
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") throw new Error("Use um endereço https.");
+    return url.origin;
+  };
+  const render = () => {
+    const box = document.getElementById("servers");
+    box.replaceChildren();
+    for (const origin of list()) {
+      const row = document.createElement("div");
+      const link = document.createElement("a");
+      link.href = origin; link.textContent = origin;
+      const remove = document.createElement("button");
+      remove.type = "button"; remove.textContent = "esquecer";
+      remove.onclick = () => { save(list().filter((o) => o !== origin)); render(); };
+      row.append(link, " ", remove);
+      box.append(row);
+    }
+  };
+  document.getElementById("open-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    try {
+      const origin = normalize(document.getElementById("server-url").value);
+      save([origin, ...list().filter((o) => o !== origin)]);
+      location.href = origin;
+    } catch (error) { alert(error.message || "Endereço inválido."); }
+  });
+  const fromQuery = new URLSearchParams(location.search).get("servidor");
+  if (fromQuery) { try { const origin = normalize(fromQuery); save([origin, ...list().filter((o) => o !== origin)]); } catch {} }
+  render();
+
+  for (const pre of document.querySelectorAll("pre")) {
+    const button = document.createElement("button");
+    button.className = "copy"; button.type = "button"; button.textContent = "copiar";
+    button.onclick = () => navigator.clipboard.writeText(pre.firstChild.textContent.trim()).then(() => { button.textContent = "copiado"; setTimeout(() => button.textContent = "copiar", 1500); });
+    pre.append(button);
+  }
+</script>
+</body>
+</html>

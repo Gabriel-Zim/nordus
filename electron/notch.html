@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'">
+<title></title>
+<link rel="stylesheet" href="notch.css">
+</head>
+<body>
+<main id="shape" class="shape" data-phase="idle" data-kind="notch">
+  <div id="strip" class="strip">
+    <button id="left" class="wing left" type="button" tabindex="-1"><span id="avatars" class="avatars"></span></button>
+    <span class="gap"></span>
+    <button id="right" class="wing right" type="button" tabindex="-1"><span id="check" class="check"></span><span id="text" class="text" dir="auto"></span></button>
+  </div>
+  <section id="panel" class="panel">
+    <p id="header" class="header" dir="auto"></p>
+    <p id="sentence" class="sentence" dir="auto"></p>
+    <div class="actions">
+      <button id="decline" class="action quiet" type="button" tabindex="-1" disabled></button>
+      <button id="approve" class="action solid" type="button" tabindex="-1" disabled></button>
+      <button id="open" class="action quiet" type="button" tabindex="-1" disabled></button>
+    </div>
+  </section>
+</main>
+<script src="notch-page.js"></script>
+</body>
+</html>

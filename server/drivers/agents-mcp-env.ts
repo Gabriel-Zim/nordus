@@ -1,0 +1,6 @@
+import { TOOL_BRIDGE_ENV } from "./agents-bridge.ts";
+
+/** The settings the harness gives the agents MCP server, and the only ones a request may carry over HTTP. */
+export const AGENTS_MCP_ENV = ["NORDUS_BOT_ID", "NORDUS_THREAD_ID", "NORDUS_TURN_DEPTH", "NORDUS_EXTERNAL_RUNTIME", "NORDUS_CHIEF_OF_STAFF",
+  "NORDUS_SKILL_AUTHORING_ENABLED", "NORDUS_MEMORY_ENABLED", "NORDUS_SHARED_COMPUTERS_ENABLED", "NORDUS_CLOUD_HOME", "NORDUS_VOICE_NOTES",
+  "NORDUS_X_RESEARCH", "NORDUS_ESCALATIONS", "NORDUS_BOARD", TOOL_BRIDGE_ENV] as const;
