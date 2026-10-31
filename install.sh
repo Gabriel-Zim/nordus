@@ -332,6 +332,8 @@ install_server_linux() {
   write_cli_wrapper "$dir" "$SERVICE_USER"
   install_engines
   install_browser "$dir"
+  # An update: the running server holds ports 80 and 443 itself; it restarts with the new version below.
+  as_root systemctl stop nordus >/dev/null 2>&1 || true
   choose_address
   install_linux_service "$dir"
   wait_until_ready
