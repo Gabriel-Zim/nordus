@@ -3,8 +3,9 @@
 # Nordus-amd64.deb), the names install.sh, install.ps1 and the README link to. The release also carries latest*.yml,
 # which the in-app updater reads.
 #
-# The builds are not signed with paid Apple or Microsoft certificates: macOS gets an ad-hoc signature and the
-# installers say so in INSTALL.md. Signing secrets can be added later without changing the download names.
+# macOS is signed with a Developer ID, notarized and stapled, so Gatekeeper opens a downloaded dmg without a warning.
+# The mac job refuses to run without the signing secrets rather than publish an app macOS would block. Windows is not
+# code-signed yet.
 name: Installers
 
 on:
@@ -22,10 +23,26 @@ concurrency:
 
 jobs:
   mac:
-    name: macOS (Apple silicon + Intel)
+    name: macOS (Apple silicon + Intel, signed and notarized)
     runs-on: macos-14
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
+      - name: "Gate: the signing and notarization secrets are set"
+        env:
+          MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          missing=""
+          for name in MAC_CERT_P12_BASE64 MAC_CERT_PASSWORD APPLE_API_KEY_P8_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+            test -n "${!name}" || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. The Mac build is not published unsigned, because macOS refuses to open it. See docs/releasing.md."
+            exit 1
+          fi
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -35,17 +52,126 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      - name: Import the Developer ID certificate into a throwaway keychain
+        env:
+          MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$MAC_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MAC_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+          rm "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$KEYCHAIN" | grep -q "Developer ID Application" \
+            || { echo "::error::MAC_CERT_P12_BASE64 does not hold a Developer ID Application identity"; exit 1; }
+
       - name: Package both architectures
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
           NODE_OPTIONS: --max-old-space-size=4096
-        run: pnpm package:mac -c.mac.identity=- -c.dmg.sign=false
+        run: pnpm package:mac
+
+      - name: "Gate: the signature must verify BEFORE notarization"
+        run: |
+          set -euo pipefail
+          for app in release/mac-arm64/Nordus.app release/mac/Nordus.app; do
+            codesign --verify --deep --strict "$app"
+            app_team=$(codesign -dv --verbose=4 "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+            authority=$(codesign -dv --verbose=4 "$app" 2>&1 | sed -n 's/^Authority=//p' | head -n 1)
+            case "$authority" in "Developer ID Application:"*) ;; *)
+              echo "::error::$app is signed by '$authority', not a Developer ID"; exit 1 ;; esac
+            for bin in "$app/Contents/Resources/cloudflared/cloudflared" "$app/Contents/Resources/browser-engine/agent-browser" \
+              "$app/Contents/Resources/browser-engine/chrome/"*/chrome-headless-shell; do
+              test -x "$bin" || { echo "::error::missing executable $bin"; exit 1; }
+              codesign --verify --strict "$bin"
+              bin_team=$(codesign -dv --verbose=4 "$bin" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+              test -n "$app_team" && test "$bin_team" = "$app_team" \
+                || { echo "::error::$bin is not signed by the app's Developer ID team"; exit 1; }
+            done
+            echo "ok: $app ($authority)"
+          done
+
+      - name: "Gate: both packaged servers start"
+        run: |
+          set -euo pipefail
+          for app in release/mac-arm64/Nordus.app release/mac/Nordus.app; do
+            res="$app/Contents/Resources"
+            NORDUS_SMOKE_DIST="$res/server" node scripts/smoke-packaged-server.mjs \
+              || { echo "::error::packaged server in $app failed to start"; exit 1; }
+            node scripts/check-module-scopes.mjs "$res"
+          done
+
+      - name: Notarize the dmgs and zips
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -uo pipefail
+          echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          auth=(--key "$RUNNER_TEMP/notary.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID")
+          status=0
+          for f in release/*.dmg release/*.zip; do
+            out=$(xcrun notarytool submit "$f" "${auth[@]}" --wait --timeout 45m 2>&1)
+            echo "$out" | tail -n 3
+            if ! echo "$out" | grep -q "status: Accepted"; then
+              echo "::error::notarization not Accepted for $f"
+              id=$(echo "$out" | sed -n 's/^ *id: //p' | head -n 1)
+              if [ -n "$id" ]; then xcrun notarytool log "$id" "${auth[@]}" || true; fi
+              status=1
+              break
+            fi
+          done
+          rm -f "$RUNNER_TEMP/notary.p8"
+          exit $status
+
+      - name: Staple, re-zip, regenerate blockmaps and the feed
+        run: |
+          set -euo pipefail
+          v=$(node -p "require('./package.json').version")
+          xcrun stapler staple "release/Nordus-$v-arm64.dmg"
+          xcrun stapler staple "release/Nordus-$v-x64.dmg"
+          xcrun stapler staple release/mac-arm64/Nordus.app
+          xcrun stapler staple release/mac/Nordus.app
+          rm -f "release/Nordus-$v-arm64.zip" "release/Nordus-$v-x64.zip"
+          ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/Nordus.app "release/Nordus-$v-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent release/mac/Nordus.app "release/Nordus-$v-x64.zip"
+          node scripts/regenerate-blockmaps.mjs \
+            "release/Nordus-$v-arm64.zip" "release/Nordus-$v-x64.zip" \
+            "release/Nordus-$v-arm64.dmg" "release/Nordus-$v-x64.dmg"
+          node scripts/regenerate-mac-feed.mjs
+
+      - name: "Gate: Gatekeeper accepts the stapled apps and dmgs"
+        run: |
+          set -euo pipefail
+          v=$(node -p "require('./package.json').version")
+          for app in release/mac-arm64/Nordus.app release/mac/Nordus.app; do
+            xcrun stapler validate "$app"
+            spctl --assess --type execute -vv "$app"
+          done
+          for dmg in "release/Nordus-$v-arm64.dmg" "release/Nordus-$v-x64.dmg"; do
+            xcrun stapler validate "$dmg"
+            spctl --assess --type open --context context:primary-signature -vv "$dmg"
+          done
+
       - name: Stable download names
         run: |
           set -euo pipefail
-          cp release/Nordus-*-arm64.dmg release/Nordus.dmg
-          cp release/Nordus-*-x64.dmg release/Nordus-intel.dmg
+          v=$(node -p "require('./package.json').version")
+          cp "release/Nordus-$v-arm64.dmg" release/Nordus.dmg
+          cp "release/Nordus-$v-x64.dmg" release/Nordus-intel.dmg
           ls -lh release/*.dmg release/*.zip release/*.yml
+
+      - name: Remove the throwaway keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" 2>/dev/null || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: mac
