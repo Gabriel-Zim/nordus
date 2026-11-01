@@ -128,18 +128,20 @@ jobs:
           }
           # An unsigned download from the internet zone first stops on Windows' "Open File - Security Warning";
           # a person clicks Run, the runner records the prompt and then clears the zone mark the same way.
-          $warned = Start-Process $setup -ArgumentList "/S" -PassThru
-          if (-not $warned.WaitForExit(15000)) {
-            Save-Screen "proof/windows-download-warning.png"
-            "the internet-zone download stopped on a security prompt (unsigned installer)" | Tee-Object -Append $log
-            Get-Process | Where-Object { $_.Path -eq $setup } | Stop-Process -Force
-            Unblock-File $setup
-            # pwsh's Start-Process -Wait also waits for the app the installer launches when it finishes
-            $installer = Start-Process $setup -ArgumentList "/S" -PassThru
-          } else {
-            $installer = $warned
+          $probe = Start-Process powershell -ArgumentList "-NoProfile", "-Command", "Start-Process '$setup' -ArgumentList '/S'" -PassThru
+          Start-Sleep 12
+          Save-Screen "proof/windows-download-prompt.png"
+          $installedEarly = Test-Path "$env:LOCALAPPDATA\Programs\Nordus\Nordus.exe"
+          "probe still waiting after 12 s: $(-not $probe.HasExited); installed without a prompt: $installedEarly" | Tee-Object -Append $log
+          if (-not $probe.HasExited) { Stop-Process -Id $probe.Id -Force }
+          Get-Process | Where-Object { $_.Path -eq $setup } | Stop-Process -Force
+          Unblock-File $setup
+          # pwsh's Start-Process -Wait also waits for the app the installer launches when it finishes
+          $installer = Start-Process $setup -ArgumentList "/S" -PassThru
+          if (-not $installer.WaitForExit(300000)) {
+            Save-Screen "proof/windows-installer-stuck.png"
+            throw "the installer did not finish in 5 minutes"
           }
-          $installer.WaitForExit()
           "installer exit code: $($installer.ExitCode)" | Tee-Object -Append $log
           $exe = "$env:LOCALAPPDATA\Programs\Nordus\Nordus.exe"
           if (-not (Test-Path $exe)) { throw "Nordus.exe not installed at $exe" }
