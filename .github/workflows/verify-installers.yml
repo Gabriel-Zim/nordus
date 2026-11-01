@@ -119,8 +119,26 @@ jobs:
           Set-Content -Path $setup -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=$url"
           (Get-FileHash $setup -Algorithm SHA256).Hash | Tee-Object -Append $log
           Get-AuthenticodeSignature $setup | Format-List Status, SignerCertificate | Out-String | Tee-Object -Append $log
-          # pwsh's Start-Process -Wait also waits for the app the installer launches when it finishes
-          $installer = Start-Process $setup -ArgumentList "/S" -PassThru
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          function Save-Screen($path) {
+            $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+            $bmp.Save($path)
+          }
+          # An unsigned download from the internet zone first stops on Windows' "Open File - Security Warning";
+          # a person clicks Run, the runner records the prompt and then clears the zone mark the same way.
+          $warned = Start-Process $setup -ArgumentList "/S" -PassThru
+          if (-not $warned.WaitForExit(15000)) {
+            Save-Screen "proof/windows-download-warning.png"
+            "the internet-zone download stopped on a security prompt (unsigned installer)" | Tee-Object -Append $log
+            Get-Process | Where-Object { $_.Path -eq $setup } | Stop-Process -Force
+            Unblock-File $setup
+            # pwsh's Start-Process -Wait also waits for the app the installer launches when it finishes
+            $installer = Start-Process $setup -ArgumentList "/S" -PassThru
+          } else {
+            $installer = $warned
+          }
           $installer.WaitForExit()
           "installer exit code: $($installer.ExitCode)" | Tee-Object -Append $log
           $exe = "$env:LOCALAPPDATA\Programs\Nordus\Nordus.exe"
@@ -140,11 +158,7 @@ jobs:
             if (-not $ok) { Start-Sleep 2 }
           }
           Start-Sleep 8
-          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
-          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
-          $bmp.Save("proof/windows-window.png")
+          Save-Screen "proof/windows-window.png"
           Get-Process Nordus -ErrorAction SilentlyContinue | Format-Table Id, MainWindowTitle | Out-String | Tee-Object -Append $log
           if (-not $ok) { throw "the embedded server did not answer" }
       - uses: actions/upload-artifact@v4
