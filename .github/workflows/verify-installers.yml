@@ -1,0 +1,198 @@
+# Installs each published desktop installer the way someone who downloads it would, opens the app, and checks that its
+# embedded server answers. Each job uploads its log and a screenshot of the screen as proof.
+name: Verify installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify (empty = the latest release)
+        required: false
+        default: ""
+  workflow_run:
+    workflows: [Installers]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: macOS ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: Apple silicon, runner: macos-14, file: Nordus.dmg }
+          - { label: Intel, runner: macos-15-intel, file: Nordus-intel.dmg }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      FILE: ${{ matrix.file }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download like a browser does (with the quarantine flag)
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          if [ -n "$TAG" ]; then url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$FILE"
+          else url="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/$FILE"; fi
+          echo "url: $url" | tee proof/mac.log
+          curl -fL --retry 3 -o "$HOME/Downloads/$FILE" "$url"
+          xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)" "$HOME/Downloads/$FILE"
+          xattr -l "$HOME/Downloads/$FILE" | tee -a proof/mac.log
+          shasum -a 256 "$HOME/Downloads/$FILE" | tee -a proof/mac.log
+      - name: Gatekeeper accepts the downloaded dmg
+        run: |
+          set -euo pipefail
+          spctl -a -vv -t open --context context:primary-signature "$HOME/Downloads/$FILE" 2>&1 | tee -a proof/mac.log
+          xcrun stapler validate "$HOME/Downloads/$FILE" 2>&1 | tee -a proof/mac.log
+      - name: Mount, copy to /Applications, assess the app
+        run: |
+          set -euo pipefail
+          mnt=$(hdiutil attach -nobrowse "$HOME/Downloads/$FILE" | awk -F'\t' '/\/Volumes\//{print $NF}' | tail -n 1)
+          echo "mounted: $mnt" | tee -a proof/mac.log
+          ditto "$mnt/Nordus.app" /Applications/Nordus.app
+          hdiutil detach "$mnt"
+          # Finder carries the dmg's quarantine flag onto what it copies out of it
+          xattr -w -r com.apple.quarantine "$(xattr -p com.apple.quarantine "$HOME/Downloads/$FILE")" /Applications/Nordus.app
+          spctl -a -vv /Applications/Nordus.app 2>&1 | tee -a proof/mac.log
+          spctl -a -vv /Applications/Nordus.app 2>&1 | grep -q "source=Notarized Developer ID"
+          codesign -dv --verbose=2 /Applications/Nordus.app 2>&1 | grep -E "^(Authority|TeamIdentifier)=" | tee -a proof/mac.log
+      - name: Open the app and wait for the embedded server
+        run: |
+          set -uo pipefail
+          health() {
+            for port in 8799 18799 28799; do
+              if body=$(curl -fsS --max-time 2 "http://127.0.0.1:$port/api/health"); then
+                echo "health on $port: $body" | tee -a proof/mac.log; return 0
+              fi
+            done
+            return 1
+          }
+          open /Applications/Nordus.app
+          ok=1
+          for i in $(seq 1 30); do
+            if health; then ok=0; break; fi
+            sleep 2
+          done
+          screencapture -x proof/mac-first-open.png || true
+          if [ $ok -ne 0 ]; then
+            # The first open of a downloaded app asks "Are you sure you want to open it?"; a runner has nobody to click.
+            echo "server not up after open; answering the first-open prompt" | tee -a proof/mac.log
+            osascript -e 'tell application "System Events" to tell process "CoreServicesUIAgent" to click button "Open" of window 1' 2>&1 | tee -a proof/mac.log || true
+            for i in $(seq 1 60); do
+              if health; then ok=0; break; fi
+              sleep 2
+            done
+          fi
+          sleep 8
+          screencapture -x proof/mac-window.png || true
+          log show --last 5m --style compact --predicate 'subsystem == "com.apple.syspolicy" OR process == "syspolicyd"' 2>/dev/null | grep -i nordus | tail -n 40 >> proof/mac.log || true
+          exit $ok
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proof-mac-${{ matrix.runner }}
+          path: proof/
+
+  windows:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download, install silently, open, wait for the embedded server
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force proof | Out-Null
+          $log = "proof/windows.log"
+          if ($env:TAG) { $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/Nordus-setup.exe" }
+          else { $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download/Nordus-setup.exe" }
+          "url: $url" | Tee-Object -Append $log
+          $setup = "$env:USERPROFILE\Downloads\Nordus-setup.exe"
+          Invoke-WebRequest $url -OutFile $setup
+          Set-Content -Path $setup -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=$url"
+          (Get-FileHash $setup -Algorithm SHA256).Hash | Tee-Object -Append $log
+          Get-AuthenticodeSignature $setup | Format-List Status, SignerCertificate | Out-String | Tee-Object -Append $log
+          Start-Process $setup -ArgumentList "/S" -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\Nordus\Nordus.exe"
+          if (-not (Test-Path $exe)) { throw "Nordus.exe not installed at $exe" }
+          "installed: $exe" | Tee-Object -Append $log
+          Get-Process Nordus -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Process $exe
+          $ok = $false
+          for ($i = 0; $i -lt 90 -and -not $ok; $i++) {
+            foreach ($port in 8799, 18799, 28799) {
+              try {
+                $r = Invoke-WebRequest "http://127.0.0.1:$port/api/health" -TimeoutSec 2 -UseBasicParsing
+                "health on ${port}: $($r.Content)" | Tee-Object -Append $log
+                $ok = $true; break
+              } catch {}
+            }
+            if (-not $ok) { Start-Sleep 2 }
+          }
+          Start-Sleep 8
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+          $bmp.Save("proof/windows-window.png")
+          Get-Process Nordus -ErrorAction SilentlyContinue | Format-Table Id, MainWindowTitle | Out-String | Tee-Object -Append $log
+          if (-not $ok) { throw "the embedded server did not answer" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proof-windows
+          path: proof/
+
+  linux:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: Ubuntu 24.04 (.deb)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download and install the .deb
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          if [ -n "$TAG" ]; then url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Nordus-amd64.deb"
+          else url="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/Nordus-amd64.deb"; fi
+          echo "url: $url" | tee proof/linux.log
+          curl -fL --retry 3 -o "$HOME/Nordus-amd64.deb" "$url"
+          sha256sum "$HOME/Nordus-amd64.deb" | tee -a proof/linux.log
+          sudo apt-get update
+          sudo apt-get install -y xvfb imagemagick "$HOME/Nordus-amd64.deb"
+          dpkg -s nordus 2>/dev/null | grep -E "^(Package|Version)" | tee -a proof/linux.log || dpkg -l | grep -i nordus | tee -a proof/linux.log
+      - name: Open the app and wait for the embedded server
+        run: |
+          set -uo pipefail
+          Xvfb :99 -screen 0 1440x900x24 &
+          export DISPLAY=:99
+          sleep 2
+          bin=$(command -v nordus || echo /opt/Nordus/nordus)
+          echo "binary: $bin" | tee -a proof/linux.log
+          "$bin" > proof/linux-app.log 2>&1 &
+          ok=1
+          for i in $(seq 1 90); do
+            for port in 8799 18799 28799; do
+              if body=$(curl -fsS --max-time 2 "http://127.0.0.1:$port/api/health"); then
+                echo "health on $port: $body" | tee -a proof/linux.log; ok=0; break 2
+              fi
+            done
+            sleep 2
+          done
+          sleep 8
+          import -window root proof/linux-window.png || true
+          exit $ok
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proof-linux
+          path: proof/
