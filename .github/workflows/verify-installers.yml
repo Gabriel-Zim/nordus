@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: Apple silicon, runner: macos-14, file: Nordus.dmg }
+          - { label: Apple silicon, runner: macos-15, file: Nordus.dmg }
           - { label: Intel, runner: macos-15-intel, file: Nordus-intel.dmg }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -119,7 +119,10 @@ jobs:
           Set-Content -Path $setup -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=$url"
           (Get-FileHash $setup -Algorithm SHA256).Hash | Tee-Object -Append $log
           Get-AuthenticodeSignature $setup | Format-List Status, SignerCertificate | Out-String | Tee-Object -Append $log
-          Start-Process $setup -ArgumentList "/S" -Wait
+          # pwsh's Start-Process -Wait also waits for the app the installer launches when it finishes
+          $installer = Start-Process $setup -ArgumentList "/S" -PassThru
+          $installer.WaitForExit()
+          "installer exit code: $($installer.ExitCode)" | Tee-Object -Append $log
           $exe = "$env:LOCALAPPDATA\Programs\Nordus\Nordus.exe"
           if (-not (Test-Path $exe)) { throw "Nordus.exe not installed at $exe" }
           "installed: $exe" | Tee-Object -Append $log
@@ -167,6 +170,9 @@ jobs:
           echo "url: $url" | tee proof/linux.log
           curl -fL --retry 3 -o "$HOME/Nordus-amd64.deb" "$url"
           sha256sum "$HOME/Nordus-amd64.deb" | tee -a proof/linux.log
+          # The package refuses a writable /opt; hosted runners ship one, a stock Ubuntu has root:root 0755
+          echo "runner /opt: $(stat -c '%U:%G:%a' /opt)" | tee -a proof/linux.log
+          sudo chown root:root /opt && sudo chmod 0755 /opt
           sudo apt-get update
           sudo apt-get install -y xvfb imagemagick "$HOME/Nordus-amd64.deb"
           dpkg -s nordus 2>/dev/null | grep -E "^(Package|Version)" | tee -a proof/linux.log || dpkg -l | grep -i nordus | tee -a proof/linux.log
