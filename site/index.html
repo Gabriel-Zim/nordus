@@ -3,128 +3,290 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nordus: o seu time de IA, num app de conversa</title>
-  <meta name="description" content="Robôs que trabalham como funcionários, lado a lado com o seu time. Código aberto, no seu computador ou na sua VPS.">
+  <title>Nordus | Seus funcionários de IA, em código aberto</title>
+  <meta name="description" content="Robôs que trabalham como funcionários, lado a lado com o seu time. Código aberto, no seu computador ou na sua VPS, com as assinaturas de IA que você já tem.">
+  <meta property="og:title" content="Nordus | Seus funcionários de IA, em código aberto">
+  <meta property="og:description" content="Instale no Mac, no Windows ou numa VPS. Robôs que conversam entre si, pedem sua aprovação e trabalham 24 horas.">
+  <meta property="og:image" content="media/hero.jpg">
   <link rel="icon" href="icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#0b0b0c; --card:#141416; --line:#26262a; --ink:#f4f4f5; --soft:#a1a1aa; --accent:#f05a1a; }
-    * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
-    main { max-width:960px; margin:0 auto; padding:56px 20px 80px; }
-    header { text-align:center; }
-    header img { width:96px; height:96px; }
-    h1 { font-size:44px; margin:12px 0 4px; letter-spacing:-0.02em; }
-    .lead { color:var(--soft); font-size:19px; max-width:640px; margin:0 auto; }
-    .lang { margin-top:10px; font-size:14px; }
-    .lang a { color:var(--soft); }
-    section { margin-top:48px; }
-    h2 { font-size:22px; margin:0 0 14px; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; }
-    .card h3 { margin:0 0 6px; font-size:17px; }
-    .card p { margin:0 0 14px; color:var(--soft); font-size:14.5px; }
-    .btn { display:inline-flex; align-items:center; gap:8px; background:var(--accent); color:#fff; text-decoration:none; border:0; border-radius:999px; padding:10px 18px; font-weight:600; font-size:15px; cursor:pointer; }
-    .btn.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); }
-    .btn + .btn { margin-left:6px; }
-    .primary { text-align:center; margin-top:28px; }
-    .primary .note { color:var(--soft); font-size:13px; margin-top:8px; }
-    pre { margin:0; background:#0e0e10; border:1px solid var(--line); border-radius:10px; padding:12px 44px 12px 12px; overflow-x:auto; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; position:relative; white-space:pre; }
-    .copy { position:absolute; top:7px; right:7px; background:#1d1d21; border:1px solid var(--line); color:var(--soft); border-radius:8px; font-size:12px; padding:3px 8px; cursor:pointer; }
-    .row { display:flex; gap:8px; flex-wrap:wrap; }
-    input { flex:1 1 260px; background:#0e0e10; border:1px solid var(--line); color:var(--ink); border-radius:999px; padding:10px 16px; font-size:15px; }
-    .servers { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
-    .servers a { color:var(--ink); }
-    .servers button { background:none; border:0; color:var(--soft); cursor:pointer; font-size:13px; }
-    ul.features { columns:2 280px; padding-left:18px; color:var(--soft); }
-    ul.features li { margin-bottom:8px; break-inside:avoid; }
-    ul.features b { color:var(--ink); }
-    footer { margin-top:56px; color:var(--soft); font-size:13px; text-align:center; }
-    footer a { color:var(--soft); }
+    :root {
+      --bg: #0a0a0a; --card: #0f0f10; --card-2: #141416; --line: #1f1f1f; --line-2: #2a2a2e;
+      --ink: #e2e8f0; --soft: #94a3b8; --dim: #64748b; --accent: #ff6633;
+      --font: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+    .nav { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); width: min(1200px, calc(100% - 32px)); z-index: 20;
+      display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 10px 20px;
+      background: rgba(15, 15, 16, .72); border: 1px solid var(--line-2); border-radius: 14px; backdrop-filter: blur(14px); }
+    .nav img { height: 18px; display: block; }
+    .nav nav { display: flex; align-items: center; gap: 26px; font-size: 14.5px; color: var(--soft); }
+    .nav nav a { text-decoration: none; }
+    .nav nav a:hover { color: var(--ink); }
+    .btn { display: inline-flex; align-items: center; gap: 8px; background: var(--accent); color: #0a0a0a; font-weight: 700; font-size: 14.5px;
+      text-decoration: none; border: 0; border-radius: 10px; padding: 9px 16px; cursor: pointer; }
+    .btn:hover { filter: brightness(1.08); }
+    .ghost { background: transparent; color: var(--ink); border: 1px solid var(--line-2); font-weight: 600; }
+
+    .label { font: 500 12px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+    .label::before { content: "•"; margin-right: 10px; }
+    h1, h2, h3 { margin: 0; letter-spacing: -.02em; }
+    .muted { color: #8496b0; }
+
+    .hero { position: relative; min-height: 100vh; display: flex; align-items: center; overflow: hidden; }
+    .hero-art { position: absolute; inset: 0; background: url(media/hero.jpg) center 30% / cover no-repeat; opacity: .95; }
+    .hero-art::after { content: ""; position: absolute; inset: 0;
+      background: linear-gradient(90deg, rgba(10,10,10,.96) 0%, rgba(10,10,10,.82) 38%, rgba(10,10,10,.15) 70%, rgba(10,10,10,.4) 100%),
+                  linear-gradient(180deg, rgba(10,10,10,0) 70%, var(--bg) 100%); }
+    .hero .wrap { position: relative; width: 100%; padding-top: 120px; padding-bottom: 80px; }
+    .hero h1 { font-size: clamp(42px, 6vw, 76px); line-height: 1.02; font-weight: 800; margin: 18px 0 22px; max-width: 760px; }
+    .hero p.lead { font-size: 18px; color: var(--soft); max-width: 560px; margin: 0 0 30px; }
+    .stores { display: flex; flex-wrap: wrap; gap: 10px; }
+    .store { display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px 9px 12px; border-radius: 12px; text-decoration: none;
+      background: rgba(20,20,22,.85); border: 1px solid var(--line-2); }
+    .store:hover { border-color: var(--accent); }
+    .store svg { width: 20px; height: 20px; fill: var(--ink); }
+    .store small { display: block; font-size: 10.5px; color: var(--soft); line-height: 1.1; }
+    .store b { display: block; font-size: 15px; line-height: 1.2; }
+    .store.main { background: var(--accent); border-color: var(--accent); color: #0a0a0a; }
+    .store.main svg { fill: #0a0a0a; } .store.main small { color: #2b1208; }
+    .hero .note { margin-top: 16px; font-size: 13.5px; color: var(--dim); }
+    .hero .note code { font: 12.5px var(--mono); color: var(--soft); }
+
+    .ticker { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #0c0c0d; overflow: hidden; padding: 14px 0; }
+    .ticker .track { display: flex; gap: 40px; width: max-content; animation: roll 60s linear infinite; }
+    .ticker .item { display: flex; align-items: center; gap: 10px; white-space: nowrap; font-size: 14px; }
+    .ticker img { width: 26px; height: 26px; border-radius: 50%; }
+    .ticker .st { font: 500 10.5px var(--mono); letter-spacing: .12em; color: #3ecf8e; }
+    .ticker .st.wait { color: var(--accent); }
+    @keyframes roll { to { transform: translateX(-50%); } }
+    @media (prefers-reduced-motion: reduce) { .ticker .track { animation: none; } }
+
+    section { padding: 120px 0 40px; }
+    .head h2 { font-size: clamp(32px, 4.4vw, 54px); line-height: 1.08; font-weight: 800; margin-top: 16px; max-width: 760px; }
+    .step { display: grid; grid-template-columns: 1fr 1.35fr; gap: 56px; align-items: center; margin-top: 96px; }
+    .step.flip .texto { order: 2; }
+    .num { display: inline-flex; align-items: center; gap: 12px; font: 500 11.5px var(--mono); letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
+    .num b { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid #5a2a16; color: var(--accent); font-weight: 500; }
+    .step h3 { font-size: clamp(26px, 3vw, 36px); line-height: 1.12; font-weight: 800; margin: 18px 0 14px; }
+    .step p { color: var(--soft); margin: 0; font-size: 16.5px; }
+    .frame { border-radius: 16px; overflow: hidden; border: 1px solid var(--line-2); background: var(--card); box-shadow: 0 40px 120px -40px rgba(255,102,51,.25); }
+    .frame .bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+    .frame .bar i { width: 10px; height: 10px; border-radius: 50%; background: #2a2a2e; }
+    .frame .bar span { margin-left: 10px; font: 500 11px var(--mono); letter-spacing: .12em; color: var(--dim); text-transform: uppercase; }
+    .frame video, .frame img { display: block; width: 100%; height: auto; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 48px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; }
+    .card h4 { margin: 14px 0 8px; font-size: 18px; }
+    .card p { margin: 0; color: var(--soft); font-size: 15px; }
+    .card .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: #1a0f0a; border: 1px solid #3a1c10; color: var(--accent); font: 600 15px var(--mono); }
+
+    .install { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 48px; }
+    .install .card p { margin-bottom: 16px; }
+    .install > *, .ai > *, .step > *, .grid > * { min-width: 0; }
+    pre { margin: 0; position: relative; background: #070708; border: 1px solid var(--line); border-radius: 10px; padding: 12px 52px 12px 12px;
+      overflow-x: auto; font: 12.5px/1.5 var(--mono); color: var(--ink); white-space: pre; }
+    .copy { position: absolute; top: 8px; right: 8px; background: #17171a; border: 1px solid var(--line-2); color: var(--soft); border-radius: 7px;
+      font: 11px var(--mono); padding: 3px 8px; cursor: pointer; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .ai { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: center; }
+    input { flex: 1 1 260px; background: #070708; border: 1px solid var(--line-2); color: var(--ink); border-radius: 10px; padding: 11px 14px; font: 15px var(--font); }
+    input:focus { outline: none; border-color: var(--accent); }
+    .servers { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+    .servers button { background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 12.5px; }
+
+    .diagram img { width: 100%; height: auto; display: block; border-radius: 20px; border: 1px solid var(--line); margin-top: 48px; }
+
+    footer { margin-top: 120px; border-top: 1px solid var(--line); padding: 40px 0 60px; color: var(--dim); font-size: 14px; }
+    footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+    footer a { color: var(--soft); }
+
+    @media (max-width: 900px) {
+      .nav nav a:not(.btn) { display: none; }
+      .step, .install, .grid, .ai { grid-template-columns: 1fr; }
+      .step.flip .texto { order: 0; }
+      .hero-art { background-position: 70% 20%; opacity: .55; }
+    }
   </style>
 </head>
 <body>
-<main>
-  <header>
-    <img src="icon.png" alt="">
-    <h1>Nordus</h1>
-    <p class="lead">O seu time de IA, num app de conversa. Robôs que trabalham como funcionários, cada um com o seu modelo, computador, memória e apps, lado a lado com as pessoas do seu time.</p>
-    <p class="lang"><a href="https://github.com/Gabriel-Zim/nordus">Código no GitHub</a> · <a href="https://github.com/Gabriel-Zim/nordus/blob/main/INSTALL.md">Guia de instalação</a> · <a href="https://github.com/Gabriel-Zim/nordus/blob/main/LEIA-ME.md">Leia-me</a></p>
-    <div class="primary">
-      <a id="main-download" class="btn" href="https://github.com/Gabriel-Zim/nordus/releases/latest">Baixar o Nordus</a>
-      <div id="main-note" class="note">Mac, Windows e Ubuntu · grátis e de código aberto</div>
-    </div>
+  <header class="nav">
+    <a href="#"><img src="logo-nordus.svg" alt="Nordus"></a>
+    <nav>
+      <a href="#como-funciona">Como funciona</a>
+      <a href="#recursos">Recursos</a>
+      <a href="#instalar">Instalar</a>
+      <a href="https://github.com/Gabriel-Zim/nordus">GitHub</a>
+      <a class="btn" id="nav-download" href="https://github.com/Gabriel-Zim/nordus/releases/latest">Baixar ↓</a>
+    </nav>
   </header>
 
-  <section id="abrir">
-    <h2>Já tenho um servidor Nordus</h2>
-    <div class="card">
-      <p>Cole o endereço do seu Nordus (por exemplo <code>https://203-0-113-7.sslip.io</code> ou o seu domínio). Ele fica guardado neste navegador, e você entra com o Google ou com o link de entrada.</p>
-      <form id="open-form" class="row">
-        <input id="server-url" type="url" inputmode="url" placeholder="https://seu-servidor" required>
-        <button class="btn" type="submit">Abrir meu Nordus</button>
-      </form>
-      <div id="servers" class="servers"></div>
-    </div>
-  </section>
+  <main>
+    <section class="hero">
+      <div class="hero-art" aria-hidden="true"></div>
+      <div class="wrap">
+        <span class="label">Código aberto · Licença Apache 2.0</span>
+        <h1>Esqueça que é IA.<br><span class="muted">Você contratou um funcionário.</span></h1>
+        <p class="lead">Robôs que trabalham 24 horas, cada um com o próprio computador, memória e apps, na mesma conversa que a sua equipe. Marque com @ e ele resolve. Agora com código aberto: instale no seu computador ou no seu servidor.</p>
+        <div class="stores">
+          <a class="store" id="dl-mac" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus.dmg">
+            <svg viewBox="0 0 24 24"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.83-.81-3-.79-1.55.02-2.97.9-3.77 2.28-1.61 2.79-.41 6.92 1.16 9.18.76 1.11 1.67 2.35 2.87 2.31 1.15-.05 1.58-.74 2.97-.74 1.39 0 1.78.74 3 .72 1.24-.02 2.02-1.13 2.78-2.24.87-1.29 1.23-2.53 1.25-2.6-.03-.01-2.4-.92-2.42-3.66zM14.1 5.84c.64-.77 1.07-1.85.95-2.92-.92.04-2.03.61-2.69 1.38-.59.68-1.11 1.77-.97 2.82 1.02.08 2.07-.52 2.71-1.28z"/></svg>
+            <span><small>Baixar para</small><b>Mac</b></span>
+          </a>
+          <a class="store" id="dl-win" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-setup.exe">
+            <svg viewBox="0 0 24 24"><path d="M3 5.5l7.5-1v7H3zm8.5-1.2L21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zm8.5 0H21V21l-9.5-1.3z"/></svg>
+            <span><small>Baixar para</small><b>Windows</b></span>
+          </a>
+          <a class="store" id="dl-linux" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-amd64.deb">
+            <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3.2a1.6 1.6 0 110 3.2 1.6 1.6 0 010-3.2zm-5.6 9.6a1.6 1.6 0 110-3.2 1.6 1.6 0 010 3.2zm5.6 4a1.6 1.6 0 110-3.2 1.6 1.6 0 010 3.2zm5.6-4a1.6 1.6 0 110-3.2 1.6 1.6 0 010 3.2z"/></svg>
+            <span><small>Baixar para</small><b>Ubuntu</b></span>
+          </a>
+          <a class="store" href="#instalar">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16a1 1 0 011 1v5a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zm0 9h16a1 1 0 011 1v5a1 1 0 01-1 1H4a1 1 0 01-1-1v-5a1 1 0 011-1zm2-6v2h2V7zm0 9v2h2v-2z"/></svg>
+            <span><small>Instalar numa</small><b>VPS</b></span>
+          </a>
+        </div>
+        <p class="note">Mac com Intel? <a href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-intel.dmg">Baixe aqui</a>. Ou peça para o Claude: <code>Instale o Nordus de github.com/Gabriel-Zim/nordus</code></p>
+      </div>
+    </section>
 
-  <section>
-    <h2>Instale onde quiser</h2>
-    <div class="grid">
-      <div class="card">
-        <h3>No Mac</h3>
-        <p>O app completo, com o servidor embutido.</p>
-        <a class="btn" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus.dmg">Apple silicon</a>
-        <a class="btn ghost" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-intel.dmg">Intel</a>
-        <p style="margin-top:14px">Ou no Terminal:</p>
-        <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash</pre>
-      </div>
-      <div class="card">
-        <h3>No Windows</h3>
-        <p>Instalador para Windows 10 e 11 (x64).</p>
-        <a class="btn" href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-setup.exe">Baixar para Windows</a>
-        <p style="margin-top:14px">Ou no PowerShell:</p>
-        <pre>irm https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.ps1 | iex</pre>
-      </div>
-      <div class="card">
-        <h3>Numa VPS, 24 horas</h3>
-        <p>Ubuntu ou Debian. HTTPS automático, mesmo sem domínio, e um link de entrada no fim.</p>
-        <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash -s -- --yes</pre>
-        <p style="margin-top:14px">Com domínio: acrescente <code>--domain nordus.suaempresa.com</code>.</p>
-      </div>
+    <div class="ticker" aria-hidden="true">
+      <div class="track" id="track"></div>
     </div>
-    <div class="card" style="margin-top:14px">
-      <h3>Ou peça para uma IA</h3>
-      <p>No Claude Code, no Codex ou noutro agente de programação:</p>
-      <pre>Instale o Nordus de https://github.com/Gabriel-Zim/nordus neste computador (ou na minha VPS root@1.2.3.4). Siga o INSTALL.md.</pre>
-    </div>
-  </section>
 
-  <section>
-    <h2>O que vem dentro</h2>
-    <ul class="features">
-      <li><b>Decisões com o Jev.</b> Quem responde, o que pode seguir sem perguntar, e ações críticas (gastar, apagar, enviar, publicar) que sempre esperam uma pessoa.</li>
-      <li><b>Navegador ao vivo.</b> Veja o robô navegar e assuma o controle quando quiser, com logins guardados por perfil.</li>
-      <li><b>Pessoas e robôs na mesma sala.</b> Salas, passagens de trabalho entre robôs e isolamento de cliente.</li>
-      <li><b>Entrar com Google</b> no seu próprio servidor, com lista de quem pode entrar.</li>
-      <li><b>12 robôs prontos:</b> editor de vídeo, tráfego pago, social media, designer, pesquisador, programador e mais.</li>
-      <li><b>Nas assinaturas que você já tem:</b> Claude, Codex, Grok, Gemini e Kimi. Nada de revenda de modelo.</li>
-      <li><b>Um computador para cada robô,</b> memória, rotinas, webhooks e apps conectados.</li>
-      <li><b>Celular:</b> abra o endereço e adicione à tela de início, com avisos.</li>
-    </ul>
-  </section>
+    <section id="como-funciona">
+      <div class="wrap">
+        <div class="head">
+          <span class="label">Como funciona</span>
+          <h2>Pessoas e IA trabalhando juntas, <span class="muted">de verdade.</span></h2>
+        </div>
+
+        <div class="step">
+          <div class="texto">
+            <span class="num"><b>01</b>O time</span>
+            <h3>Um robô pede,<br><span class="muted">os outros entregam.</span></h3>
+            <p>Você pede a pauta da semana ao SOCIAL MEDIA. Ele passa as capas ao DESIGNER e o reels ao EDITOR DE VÍDEO, espera os dois e volta com tudo numa resposta só. Você acompanha cada passagem na conversa.</p>
+          </div>
+          <div class="frame"><div class="bar"><i></i><i></i><i></i><span>Robôs trabalhando juntos</span></div>
+            <video src="media/robos-trabalhando-juntos.mp4" autoplay muted loop playsinline preload="metadata" poster="media/equipe.png"></video></div>
+        </div>
+
+        <div class="step flip">
+          <div class="texto">
+            <span class="num"><b>02</b>As aprovações</span>
+            <h3>O que importa<br><span class="muted">espera o seu sim.</span></h3>
+            <p>Gastar dinheiro, apagar de vez, enviar algo para fora, publicar ou mudar configuração sempre esperam uma pessoa, mesmo com o robô no automático. Ele pergunta na conversa, e você responde "sim".</p>
+          </div>
+          <div class="frame"><div class="bar"><i></i><i></i><i></i><span>Aprovação de ação crítica</span></div>
+            <video src="media/aprovacao-de-acao-critica.mp4" autoplay muted loop playsinline preload="metadata" poster="media/aprovacao.png"></video></div>
+        </div>
+
+        <div class="step">
+          <div class="texto">
+            <span class="num"><b>03</b>O mapa</span>
+            <h3>Cada robô<br><span class="muted">com a sua função.</span></h3>
+            <p>O mapa da equipe mostra quem lidera e quem faz cada parte. Marque um robô com @, uma equipe inteira ou @everyone.</p>
+          </div>
+          <div class="frame"><div class="bar"><i></i><i></i><i></i><span>Mapa da equipe</span></div>
+            <img src="media/mapa-da-equipe.png" alt="Mapa da equipe com o robô líder e os colegas" loading="lazy"></div>
+        </div>
+
+        <div class="step flip">
+          <div class="texto">
+            <span class="num"><b>04</b>Robôs prontos</span>
+            <h3>12 robôs prontos<br><span class="muted">para carregar.</span></h3>
+            <p>Editor de vídeo, tráfego pago, social media, designer de IA, financeiro, pesquisador, programador e mais. Cada um chega com habilidades e um "Antes de usar" que ensina a ligar as ferramentas.</p>
+          </div>
+          <div class="frame"><div class="bar"><i></i><i></i><i></i><span>Modelos</span></div>
+            <img src="media/modelos.png" alt="Tela de Modelos com os robôs prontos" loading="lazy"></div>
+        </div>
+
+        <div class="diagram"><img src="media/como-funciona-pt.svg" alt="Você pede ao SOCIAL MEDIA, que passa o trabalho ao DESIGNER e ao EDITOR DE VÍDEO e traz os resultados; o Jev decide os passos de rotina; ações críticas esperam você"></div>
+      </div>
+    </section>
+
+    <section id="recursos">
+      <div class="wrap">
+        <div class="head">
+          <span class="label">Recursos</span>
+          <h2>Tudo o que um funcionário precisa, <span class="muted">sem perder o controle.</span></h2>
+        </div>
+        <div class="grid">
+          <div class="card"><div class="ic">J</div><h4>Decisões com o Jev</h4><p>Um modelo de decisão rápido escolhe quem responde na sala e libera os passos de rotina, dentro de limites por tarefa e por dia.</p></div>
+          <div class="card"><div class="ic">◉</div><h4>Navegador ao vivo</h4><p>Veja o robô navegar e assuma o controle quando quiser. Os logins ficam guardados por perfil, sem entregar senhas.</p></div>
+          <div class="card"><div class="ic">⌂</div><h4>Um computador para cada robô</h4><p>Máquina virtual isolada, a sua VPS ou, se você permitir, o seu próprio computador.</p></div>
+          <div class="card"><div class="ic">G</div><h4>Entrar com Google</h4><p>O seu servidor tem a própria tela de entrada com Google e a lista de quem pode entrar.</p></div>
+          <div class="card"><div class="ic">AI</div><h4>Nas assinaturas que você já tem</h4><p>Claude, Codex, Grok, Gemini e Kimi. Cada robô escolhe o seu modelo, e nada passa por revenda.</p></div>
+          <div class="card"><div class="ic">24</div><h4>Rotinas e avisos</h4><p>Rotinas que rodam sozinhas, memória de longo prazo e avisos no celular, mesmo com o app fechado.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="instalar">
+      <div class="wrap">
+        <div class="head">
+          <span class="label">Instalar</span>
+          <h2>Instale onde quiser, <span class="muted">em uma linha.</span></h2>
+        </div>
+        <div class="install">
+          <div class="card"><h4>No Mac</h4><p>O app completo, com o servidor embutido.</p>
+            <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash</pre></div>
+          <div class="card"><h4>No Windows</h4><p>No PowerShell, para Windows 10 e 11.</p>
+            <pre>irm https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.ps1 | iex</pre></div>
+          <div class="card"><h4>Numa VPS, 24 horas</h4><p>Ubuntu ou Debian, com HTTPS automático mesmo sem domínio.</p>
+            <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash -s -- --yes</pre></div>
+        </div>
+        <div class="ai">
+          <div class="card"><h4>Ou peça para uma IA</h4><p>No Claude Code, no Codex ou noutro agente de programação:</p>
+            <pre>Instale o Nordus de https://github.com/Gabriel-Zim/nordus neste computador (ou na minha VPS root@1.2.3.4). Siga o INSTALL.md.</pre></div>
+          <div class="card" id="abrir"><h4>Já tenho um servidor Nordus</h4><p>Cole o endereço do seu Nordus. Ele fica guardado neste navegador, e você entra com Google ou com o link de entrada.</p>
+            <form id="open-form" class="row"><input id="server-url" type="url" inputmode="url" placeholder="https://seu-servidor" required><button class="btn" type="submit">Abrir meu Nordus</button></form>
+            <div id="servers" class="servers"></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <footer>
-    Licença Apache 2.0 · O Nordus é um fork do <a href="https://github.com/milind-soni/OpenMausBot">OpenMausBot</a>, de Milind Soni e colaboradores.
+    <div class="wrap">
+      <span>Licença Apache 2.0 · <a href="https://github.com/Gabriel-Zim/nordus">github.com/Gabriel-Zim/nordus</a> · <a href="https://nordus.ai">nordus.ai</a></span>
+      <span>O Nordus é um fork do <a href="https://github.com/milind-soni/OpenMausBot">OpenMausBot</a>, de Milind Soni e colaboradores.</span>
+    </div>
   </footer>
-</main>
+
 <script>
-  const repo = "https://github.com/Gabriel-Zim/nordus/releases/latest/download/";
+  const base = "https://github.com/Gabriel-Zim/nordus/releases/latest/download/";
   const ua = navigator.userAgent;
-  const main = document.getElementById("main-download");
-  const note = document.getElementById("main-note");
-  if (/Windows/i.test(ua)) { main.href = repo + "Nordus-setup.exe"; main.textContent = "Baixar para Windows"; }
-  else if (/Mac/i.test(ua)) { main.href = repo + "Nordus.dmg"; main.textContent = "Baixar para Mac"; note.textContent = "Mac com Intel? Use o botão Intel abaixo."; }
-  else if (/Linux/i.test(ua) && !/Android/i.test(ua)) { main.href = repo + "Nordus-amd64.deb"; main.textContent = "Baixar para Ubuntu"; }
+  const nav = document.getElementById("nav-download");
+  const main = /Windows/i.test(ua) ? "dl-win" : /Mac/i.test(ua) ? "dl-mac" : /Linux/i.test(ua) && !/Android/i.test(ua) ? "dl-linux" : null;
+  if (main) { const el = document.getElementById(main); el.classList.add("main"); el.parentElement.prepend(el); nav.href = el.href; }
+
+  const events = [
+    ["robo-01.png", "SOCIAL MEDIA passou as capas ao DESIGNER", "AGORA", false],
+    ["robo-02.png", "DESIGNER mandou 3 versões da capa", "FEITO", false],
+    ["robo-03.png", "FINANCEIRO quer enviar a fatura do mês", "ESPERANDO VOCÊ", true],
+    ["robo-04.png", "EDITOR DE VÍDEO está cortando o reels no computador dele", "HÁ 12 MIN", false],
+    ["robo-05.png", "ATENDIMENTO respondeu um e-mail de cliente", "FEITO", false],
+    ["robo-06.png", "Rotina “Bom dia” rodou às 8h", "FEITO", false],
+    ["robo-07.png", "PESQUISADOR trouxe o brief com as fontes", "FEITO", false],
+    ["robo-08.png", "TRÁFEGO PAGO quer aumentar o orçamento da campanha", "ESPERANDO VOCÊ", true],
+  ];
+  const track = document.getElementById("track");
+  for (const round of [0, 1]) for (const [img, text, st, wait] of events) {
+    const item = document.createElement("div"); item.className = "item";
+    item.innerHTML = `<img src="robos/${img}" alt=""><span>${text}</span><span class="st${wait ? " wait" : ""}">${st}</span>`;
+    track.append(item);
+  }
 
   const KEY = "nordus.servers";
   const list = () => { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } };
@@ -137,35 +299,26 @@
     return url.origin;
   };
   const render = () => {
-    const box = document.getElementById("servers");
-    box.replaceChildren();
+    const box = document.getElementById("servers"); box.replaceChildren();
     for (const origin of list()) {
-      const row = document.createElement("div");
-      const link = document.createElement("a");
-      link.href = origin; link.textContent = origin;
-      const remove = document.createElement("button");
-      remove.type = "button"; remove.textContent = "esquecer";
-      remove.onclick = () => { save(list().filter((o) => o !== origin)); render(); };
-      row.append(link, " ", remove);
-      box.append(row);
+      const row = document.createElement("div"); const link = document.createElement("a"); link.href = origin; link.textContent = origin;
+      const forget = document.createElement("button"); forget.type = "button"; forget.textContent = "esquecer";
+      forget.onclick = () => { save(list().filter((o) => o !== origin)); render(); };
+      row.append(link, " ", forget); box.append(row);
     }
   };
   document.getElementById("open-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    try {
-      const origin = normalize(document.getElementById("server-url").value);
-      save([origin, ...list().filter((o) => o !== origin)]);
-      location.href = origin;
-    } catch (error) { alert(error.message || "Endereço inválido."); }
+    try { const origin = normalize(document.getElementById("server-url").value); save([origin, ...list().filter((o) => o !== origin)]); location.href = origin; }
+    catch (error) { alert(error.message || "Endereço inválido."); }
   });
   const fromQuery = new URLSearchParams(location.search).get("servidor");
   if (fromQuery) { try { const origin = normalize(fromQuery); save([origin, ...list().filter((o) => o !== origin)]); } catch {} }
   render();
 
   for (const pre of document.querySelectorAll("pre")) {
-    const button = document.createElement("button");
-    button.className = "copy"; button.type = "button"; button.textContent = "copiar";
-    button.onclick = () => navigator.clipboard.writeText(pre.firstChild.textContent.trim()).then(() => { button.textContent = "copiado"; setTimeout(() => button.textContent = "copiar", 1500); });
+    const button = document.createElement("button"); button.className = "copy"; button.type = "button"; button.textContent = "copiar";
+    button.onclick = () => navigator.clipboard.writeText(pre.firstChild.textContent.trim()).then(() => { button.textContent = "copiado"; setTimeout(() => (button.textContent = "copiar"), 1500); });
     pre.append(button);
   }
 </script>

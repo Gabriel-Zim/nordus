@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="build/icon.svg" alt="Nordus" width="96" height="96">
+<img src="docs/media/hero.jpg" alt="The Nordus glass robot in front of the orange N" width="100%">
 
 # Nordus
 
@@ -19,6 +19,8 @@ side by side with the people on your team. Open source, self-hosted, on the AI s
 <a href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-intel.dmg"><img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20%20Mac-Intel-2a9d8f?style=for-the-badge&labelColor=070707" alt="Download Nordus for Intel Macs" height="36"></a>
 <a href="https://github.com/Gabriel-Zim/nordus/releases/latest/download/Nordus-setup.exe"><img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20%20Windows-x64-4cc2ff?style=for-the-badge&labelColor=070707" alt="Download Nordus for Windows" height="36"></a>
 <a href="INSTALL.md#2-a-server-vps"><img src="https://img.shields.io/badge/%E2%9A%A1%20%20VPS-one%20command-e95420?style=for-the-badge&labelColor=070707" alt="Install Nordus on a VPS" height="36"></a>
+
+<br>
 
 **[Install guide](INSTALL.md)** · **[Leia em português](LEIA-ME.md)** · [nordus.ai](https://nordus.ai)
 
@@ -41,6 +43,31 @@ Codex or any coding agent and say:
 
 The agent reads [INSTALL.md](INSTALL.md), which is written for both people and agents, and finishes with your Nordus
 open and signed in.
+
+## See it work
+
+Recorded in the real app, on demo data.
+
+**Bots hand work to each other.** You ask SOCIAL MEDIA for the week's posts; it hands the covers to DESIGNER and the reel to VIDEO EDITOR, waits for both, and comes back with everything in one answer.
+
+<img src="docs/media/robos-trabalhando-juntos.gif" alt="SOCIAL MEDIA hands work to DESIGNER and VIDEO EDITOR and brings the results back" width="100%">
+
+**Anything that matters waits for you.** FINANCEIRO closes the invoice, asks before sending it outside, and sends only after your yes.
+
+<img src="docs/media/aprovacao-de-acao-critica.gif" alt="FINANCEIRO asks for approval before sending an invoice and sends it after the person says yes" width="100%">
+
+<table>
+<tr>
+<td width="50%" valign="top"><b>Team map</b><br>Every bot, its team and its lead, in one view.<br><br><img src="docs/media/mapa-da-equipe.png" alt="Team map with the lead bot and its teammates" width="100%"></td>
+<td width="50%" valign="top"><b>12 ready-made bots</b><br>Video editor, paid traffic, social media, AI designer and more, one click away in Templates.<br><br><img src="docs/media/modelos.png" alt="Templates screen with the community bots" width="100%"></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><b>A conversation with a bot</b><br>Ask in plain words; it answers in your language.<br><br><img src="docs/media/equipe.png" alt="A chat with SOCIAL MEDIA" width="100%"></td>
+<td width="50%" valign="top"><b>First run</b><br>A short guided setup: your company, your context, your engines.<br><br><img src="docs/media/primeira-abertura.png" alt="First-run setup" width="100%"></td>
+</tr>
+</table>
+
+Full-quality videos: [bots working together](docs/media/robos-trabalhando-juntos.mp4) · [approval of a critical action](docs/media/aprovacao-de-acao-critica.mp4) · [a conversation](docs/media/conversa-com-um-robo.mp4).
 
 ## What it is
 
@@ -105,6 +132,9 @@ explicit opt-in), long-term memory, routines and webhooks, connected apps and cu
 for external clients and a headless CLI.
 
 ## How it works
+
+<img src="docs/media/como-funciona-en.svg" alt="You ask SOCIAL MEDIA, which hands work to DESIGNER and VIDEO EDITOR and brings the results back; Jev decides routine steps; critical actions wait for you" width="100%">
+
 
 Two processes. The app sends typed commands over HTTP and folds a single Server-Sent Events stream into its state. The
 harness server owns every agent process and turns each engine's native protocol into one runtime event stream, logged
