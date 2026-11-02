@@ -756,6 +756,8 @@ import { createGoogleLoginRoutes } from "./routes/google-login.ts";
 import { createWaitlistRoutes } from "./routes/waitlist.ts";
 import { WaitlistStore } from "./waitlist.ts";
 import { createAppCodes, createGoogleLogin, GoogleLoginStore } from "./google-login.ts";
+import { createContaRuntime } from "./conta-runtime.ts";
+import { createContaRoutes } from "./routes/conta.ts";
 import { appSessionBody, APP_TOKEN_PATH, handleLoginRoutes } from "./google-login-http.ts";
 import { createKeyConnectorRoutes, TRELLO_CALLBACK_PATH, trelloCallback } from "./routes/key-connectors.ts";
 import { KeyVault, keyMcpServersForBot, migrateConfigKeys } from "./key-vault.ts";
@@ -16251,6 +16253,38 @@ const googleLogin = createGoogleLogin({
 });
 const googleAppCodes = createAppCodes();
 ROUTES.push(createGoogleLoginRoutes({ store: googleLoginStore, publicOrigin: signInOrigin, available: GOOGLE_LOGIN_AVAILABLE }));
+/** The account's owner gets full access the moment the machine is linked, as `nordus login` does on the command line. */
+function addContaOwner(email: string): void {
+  const admins = [...(cfg.signIn?.admins ?? [])];
+  const members = [...(cfg.signIn?.members ?? [])];
+  const guests = [...(cfg.signIn?.guests ?? [])];
+  if ([...admins, ...members, ...guests].some((entry) => entry.trim().toLowerCase() === email)) return;
+  admins.push(email);
+  saveConfig({ signIn: { admins, members, guests } });
+  Object.assign(cfg, loadConfig());
+  sessions.revalidateEmailSessions();
+}
+
+const contaRuntime = GOOGLE_LOGIN_AVAILABLE ? createContaRuntime({
+  dataDir: DATA_DIR,
+  version: serverVersion(),
+  externalTunnel: Boolean(process.env.NORDUS_TUNNEL_SOCKET?.trim()),
+  listen: (socketPath) => new Promise((ready, fail) => {
+    if (process.platform !== "win32") rmSync(socketPath, { force: true });
+    const listener = createServer(gzipTunnelReplies(observedRequest));
+    desktopViewer.attach(listener, handleRequest);
+    listener.once("error", fail);
+    listener.listen(socketPath, () => ready(() => new Promise<void>((closed) => listener.close(() => closed()))));
+  }),
+  linked: (link) => {
+    googleLoginStore.setConta(link.controlPlane, link.installationId, link.credential);
+    if (link.email) addContaOwner(link.email);
+  },
+  unlinked: () => {
+    if (googleLoginStore.status().conta) googleLoginStore.remove();
+  },
+}) : null;
+if (contaRuntime) ROUTES.push(createContaRoutes(contaRuntime));
 ROUTES.push(createWaitlistRoutes({ store: waitlist, listed: (email) => Boolean(allowedScopes(email, signInAllowList())) }));
 const keyVault = new KeyVault(DATA_DIR);
 /** Nordus: keys the bots asked for by variable name, read from the settings (section botEnv) every time. */
@@ -20231,6 +20265,8 @@ if (TUNNEL_SOCKET) {
   });
 }
 
+contaRuntime?.boot();
+
 /** A root the runtime holds is the runtime's to account for at the next start: a line here, with Retry, would start the job a second time. */
 function noteTurnsCutByShutdown(): void {
   const cut = (threadId: string) => !coordinator.continuesAfterRestart(threadId) && !runtimeHoldsRoot(threadId);
@@ -20282,7 +20318,7 @@ const gracefulShutdown = createGracefulShutdown({
       cacheKeepWarm.dispose();
       skillReview.stop();
       webhookIngress?.server.close();
-      tunnelListener?.close(); stopCloudHomeConnectedApps();
+      tunnelListener?.close(); void contaRuntime?.stop(); stopCloudHomeConnectedApps();
     },
     async () => { await managedDesktop.close(); await registry.disposeAll(); },
     async () => { await dataEngine.closeAll().catch((error) => console.warn("data: close failed", error)); },

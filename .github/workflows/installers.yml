@@ -264,7 +264,8 @@ jobs:
   release:
     name: Publish the release
     needs: [mac, windows, linux]
-    if: ${{ !cancelled() && needs.mac.result == 'success' && needs.windows.result == 'success' }}
+    # Until the Apple signing secrets exist the Mac job stops on purpose; Windows and Linux still ship and the release keeps its last Mac build.
+    if: ${{ !cancelled() && needs.windows.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

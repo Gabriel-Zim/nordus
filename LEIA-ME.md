@@ -57,16 +57,20 @@ O agente lê o [INSTALL.md](INSTALL.md), roda os comandos e termina entregando o
    Sem Node? Baixe em [nodejs.org](https://nodejs.org). O Nordus encontra os motores sozinho.
 3. Crie o seu primeiro robô, ou adicione um dos 12 robôs prontos da biblioteca.
 
+Quer abrir de qualquer lugar? Em **Configurações → Conta → Endereço nordus.ai**, clique em **Conectar com a conta
+Nordus**: o navegador abre, você entra com o Google e escolhe `seu-nome.nordus.ai`. Com o computador ligado, você e
+quem você convidar entram por ali, com o Google, de qualquer navegador ou celular.
+
 Os robôs, as conversas e as configurações ficam em `~/.nordus`, no seu computador.
 
 ## 2. Num servidor (VPS)
 
 Com o Nordus num servidor, os robôs trabalham 24 horas, mesmo com o computador desligado, e você entra pelo
-navegador, pelo app de Mac ou Windows e pelo celular, com **Entrar com Google**.
+navegador, pelo app de Mac ou Windows e pelo celular, em **seu-nome.nordus.ai**, com **Entrar com Google**.
 
 **Precisa de:** uma VPS com Ubuntu 22.04 ou 24.04 (ou Debian 12), 2 CPUs e 4 GB de RAM, e acesso root. Serve
-qualquer provedor: Hostinger, Contabo, Hetzner, DigitalOcean, AWS Lightsail, Oracle. As portas 80 e 443 precisam
-estar abertas no firewall do provedor.
+qualquer provedor: Hostinger, Contabo, Hetzner, DigitalOcean, AWS Lightsail, Oracle. Não precisa de domínio nem de
+porta aberta.
 
 Entre no servidor (`ssh root@IP_DO_SERVIDOR`) e rode:
 
@@ -74,35 +78,36 @@ Entre no servidor (`ssh root@IP_DO_SERVIDOR`) e rode:
 curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash -s -- --yes
 ```
 
-- **Sem domínio:** pronto. O endereço fica `https://<ip-do-servidor>.sslip.io`, com certificado de verdade.
-- **Com domínio próprio:** aponte um registro **A** (por exemplo `nordus.suaempresa.com.br`) para o IP do servidor e
-  acrescente `--domain nordus.suaempresa.com.br` no fim do comando.
-- **Só na sua rede privada:** acrescente `--tailscale`.
-
 Em uns dez minutos, o instalador:
 
 1. instala o Node 24, o git e as ferramentas de compilação;
 2. cria a conta `nordus`, baixa e compila o Nordus;
 3. instala o Claude Code, o Codex e o navegador que os robôs usam;
-4. liga o serviço `nordus`, que sobe com o servidor, se recupera sozinho e serve HTTPS;
-5. mostra **um link de entrada e um QR code**.
+4. **liga o servidor à sua conta Nordus:** mostra um link como `https://conta.nordus.ai/ativar?codigo=BCDF-GHJK` e
+   espera. Abra em qualquer navegador, entre com o Google, confira o código e escolha o endereço, por exemplo
+   `loja-da-ana.nordus.ai`. O código vale 30 minutos; se vencer, o instalador mostra outro;
+5. liga o serviço `nordus`, que sobe com o servidor, se recupera sozinho e atende no seu endereço com HTTPS, por um
+   túnel da Cloudflare, sem abrir portas (funciona até atrás do roteador de casa).
+
+No fim, abra o seu endereço e clique em **Entrar com Google**. A conta Google que você usou é a dona, com acesso
+total. Todos os seus servidores ficam em [conta.nordus.ai](https://conta.nordus.ai).
+
+Prefere outro endereço? Acrescente no fim do comando `--domain nordus.suaempresa.com.br` (com um registro **A**
+apontando para o servidor e as portas 80 e 443 abertas), `--sslip` (`https://<ip>.sslip.io`) ou `--tailscale` (só
+na sua rede privada). Nesses casos o "Entrar com Google" usa um cliente Google seu
+([guia](docs/google-sign-in.md)) e o primeiro aparelho entra pelo link que o instalador mostra.
 
 ### Depois da instalação
 
-1. **Abra o link de entrada** no navegador (ou leia o QR code com o celular). Ele já entra no seu Nordus. Para outro
-   aparelho, rode `nordus pair` no servidor.
-2. **Entre nos motores no servidor**, uma vez só:
+1. **Entre nos motores no servidor**, uma vez só:
 
    ```sh
    sudo -iu nordus claude                      # Claude Code: abra o link que ele mostra e cole o código
    sudo -iu nordus codex login --device-auth   # Codex
    ```
 
-3. **Entrar com Google** (recomendado para times): siga o guia [docs/google-sign-in.md](docs/google-sign-in.md). Em
-   cinco minutos no Google Cloud, você e as pessoas que você liberar entram com a conta Google. No Nordus, o lugar é
-   **Configurações → Pessoas → Login com Google**, que já mostra o endereço para colar no Google. Para liberar
-   alguém: `nordus access add pessoa@gmail.com`.
-4. **Celular:** abra o endereço no Safari ou no Chrome e adicione à tela de início. Funciona como app, com avisos.
+2. **Chame o seu time:** `nordus access add pessoa@gmail.com`. A pessoa entra no seu endereço com o Google.
+3. **Celular:** abra o endereço no Safari ou no Chrome e adicione à tela de início. Funciona como app, com avisos.
 
 ### Ligar o app de Mac ou Windows ao seu servidor
 
@@ -113,7 +118,8 @@ do app ainda está em inglês). O mesmo menu troca entre o seu computador e cada
 
 ```sh
 nordus status                    # como o servidor está
-nordus pair                      # novo link de entrada para outro aparelho
+nordus login                     # ligar de novo à sua conta Nordus (um código novo)
+nordus pair                      # link de entrada para outro aparelho ou app
 nordus sessions                  # aparelhos conectados;  nordus sessions revoke ID
 nordus access add a@gmail.com    # quem pode entrar com Google
 journalctl -u nordus -f          # registro ao vivo
@@ -128,9 +134,12 @@ robôs, conversas nem entradas.
   código aberto, você usa a sua própria chave de projeto do Composio, que é grátis: crie um projeto em composio.dev,
   copie a chave e cole em **Configurações → Chaves de API → Hospedar os apps conectados por conta própria**.
   Servidores MCP próprios não precisam de chave.
-- **Endereço público gerenciado e Nordus Cloud** (`nordus login`, `serve --tunnel`, computadores na nuvem vendidos
-  no app) são serviços do produto hospedado e não fazem parte do código aberto. Use o instalador de VPS (com o seu
-  endereço HTTPS), o Tailscale ou o seu domínio.
+- **A sua conta Nordus** ([conta.nordus.ai](https://conta.nordus.ai)) guarda só a sua identidade do Google (e-mail,
+  nome e foto) e os endereços que você escolheu. Robôs, conversas e chaves ficam no seu servidor; a conta só passa o
+  login e o túnel. Até 5 endereços por conta. `nordus logout` no servidor libera o endereço. O serviço está em
+  [cloudflare/conta](cloudflare/conta).
+- **Nordus Cloud** (computadores na nuvem vendidos no app) é um serviço do produto hospedado e não faz parte do
+  código aberto.
 - **Instaladores sem assinatura paga:** os apps ainda não são assinados com certificado da Apple e da Microsoft. Os
   comandos de uma linha resolvem os avisos; à mão, veja as notas da seção 1.
 

@@ -83,6 +83,8 @@
     "broker:check": "pnpm broker:types && tsc -p cloudflare/composio-broker/tsconfig.json",
     "broker:test": "vitest run --config cloudflare/composio-broker/vitest.config.ts",
     "broker:deploy": "wrangler deploy --config cloudflare/composio-broker/wrangler.jsonc",
+    "conta:test": "vitest run --config cloudflare/conta/vitest.config.ts",
+    "conta:deploy": "wrangler deploy --config cloudflare/conta/wrangler.jsonc",
     "control-plane:types": "pnpm --filter @nordus/control-plane types",
     "control-plane:check": "pnpm --filter @nordus/control-plane check",
     "control-plane:test": "pnpm --filter @nordus/control-plane test",

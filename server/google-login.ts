@@ -1,7 +1,7 @@
 // Nordus's own sign-in page: "Entrar com Google" run by this server (OpenID Connect authorization code flow with
 // PKCE), ending in the same session cookie a pairing code gives. Who may enter is the owner's sign-in list.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -19,14 +19,31 @@ export const LOGIN_BINDING_COOKIE = "nordus_login_state";
 export const LOGIN_STATE_TTL_MS = 10 * 60_000;
 export const MAX_PENDING_LOGINS = 500;
 
-const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const GOOGLE_ISSUERS = new Set(["https://accounts.google.com", "accounts.google.com"]);
 const CLOCK_SKEW_S = 120;
+
+/** Where "Entrar com Google" sends people: Google itself with the owner's own client, or a Nordus account
+ *  (conta.nordus.ai) that runs Google's sign-in for this server and hands back the same verified identity. */
+export interface LoginProvider {
+  authorizeUrl: string;
+  tokenUrl: string;
+  issuers: ReadonlySet<string>;
+}
+
+export const GOOGLE_PROVIDER: LoginProvider = {
+  authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenUrl: "https://oauth2.googleapis.com/token",
+  issuers: new Set(["https://accounts.google.com", "accounts.google.com"]),
+};
+
+export function contaProvider(origin: string): LoginProvider {
+  return { authorizeUrl: `${origin}/oauth/authorize`, tokenUrl: `${origin}/oauth/token`, issuers: new Set([origin]) };
+}
 
 const credentialsSchema = z.object({
   clientId: z.string().min(1).max(400),
   clientSecret: z.string().min(1).max(400),
+  /** Set when the sign-in goes through a Nordus account: its origin. */
+  conta: z.string().url().startsWith("https://").optional(),
   updatedAt: z.number(),
 });
 type StoredCredentials = z.infer<typeof credentialsSchema>;
@@ -34,7 +51,15 @@ type StoredCredentials = z.infer<typeof credentialsSchema>;
 export interface GoogleLoginStatus {
   configured: boolean;
   clientId: string | null;
+  /** The Nordus account origin when the sign-in goes through it; null with the owner's own Google client. */
+  conta: string | null;
   updatedAt: number | null;
+}
+
+export interface LoginCredentials {
+  clientId: string;
+  clientSecret: string;
+  provider: LoginProvider;
 }
 
 /** The sign-in client's id and secret, sealed under a key of its own; the secret never leaves the server. */
@@ -42,6 +67,8 @@ export class GoogleLoginStore {
   private readonly file: string;
   private readonly keyFile: string;
   private cache: StoredCredentials | null | undefined;
+  /** `nordus login` saves the account link from another process while the server runs. */
+  private cacheStamp = "";
 
   constructor(dataDir: string) {
     this.file = join(dataDir, "google-login.json.enc");
@@ -61,8 +88,19 @@ export class GoogleLoginStore {
     return key;
   }
 
+  private stamp(): string {
+    try {
+      const info = statSync(this.file);
+      return `${info.mtimeMs}:${info.size}`;
+    } catch {
+      return "missing";
+    }
+  }
+
   private read(): StoredCredentials | null {
-    if (this.cache !== undefined) return this.cache;
+    const stamp = this.stamp();
+    if (this.cache !== undefined && stamp === this.cacheStamp) return this.cache;
+    this.cacheStamp = stamp;
     let stored: StoredCredentials | null = null;
     if (existsSync(this.file)) {
       try {
@@ -79,7 +117,7 @@ export class GoogleLoginStore {
 
   status(): GoogleLoginStatus {
     const stored = this.read();
-    return { configured: Boolean(stored), clientId: stored?.clientId ?? null, updatedAt: stored?.updatedAt ?? null };
+    return { configured: Boolean(stored), clientId: stored?.clientId ?? null, conta: stored?.conta ?? null, updatedAt: stored?.updatedAt ?? null };
   }
 
   /** A blank secret keeps the saved one, so the id can be corrected alone. */
@@ -88,23 +126,35 @@ export class GoogleLoginStore {
     if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(id)) {
       throw Object.assign(new Error("O ID do cliente do Google termina em .apps.googleusercontent.com."), { status: 400 });
     }
-    const secret = clientSecret?.trim() || this.read()?.clientSecret;
+    const saved = this.read();
+    const secret = clientSecret?.trim() || (saved?.conta ? undefined : saved?.clientSecret);
     if (!secret) throw Object.assign(new Error("A chave secreta do cliente é obrigatória."), { status: 400 });
-    const next = credentialsSchema.parse({ clientId: id, clientSecret: secret, updatedAt: Date.now() });
+    this.write(credentialsSchema.parse({ clientId: id, clientSecret: secret, updatedAt: Date.now() }));
+  }
+
+  /** The Nordus account this machine is linked to: its installation id and credential act as the client. */
+  setConta(origin: string, installationId: string, credential: string): void {
+    this.write(credentialsSchema.parse({ clientId: installationId, clientSecret: credential, conta: origin, updatedAt: Date.now() }));
+  }
+
+  private write(next: StoredCredentials): void {
     const key = this.key(true)!;
     mkdirSync(join(this.file, ".."), { recursive: true, mode: 0o700 });
     writeFileAtomic(this.file, encryptBrowserState(JSON.stringify(next), key), { mode: 0o600 });
     this.cache = next;
+    this.cacheStamp = this.stamp();
   }
 
   remove(): void {
     rmSync(this.file, { force: true });
     this.cache = null;
+    this.cacheStamp = this.stamp();
   }
 
-  credentials(): { clientId: string; clientSecret: string } | null {
+  credentials(): LoginCredentials | null {
     const stored = this.read();
-    return stored ? { clientId: stored.clientId, clientSecret: stored.clientSecret } : null;
+    if (!stored) return null;
+    return { clientId: stored.clientId, clientSecret: stored.clientSecret, provider: stored.conta ? contaProvider(stored.conta) : GOOGLE_PROVIDER };
   }
 }
 
@@ -168,7 +218,7 @@ export type LoginFinish =
   | { ok: false; reason: LoginRefusal; returnTo: string; countsAsFailure: boolean; app?: AppHandoff };
 
 export interface GoogleLoginOptions {
-  credentials: () => { clientId: string; clientSecret: string } | null;
+  credentials: () => LoginCredentials | null;
   /** The owner's sign-in list: the scopes this address gets, or null when it may not enter. */
   allow: (email: string) => readonly Scope[] | null;
   /** Verified Google accounts that are not on the list wait here; a successful sign-in leaves the queue. */
@@ -201,10 +251,10 @@ function decodeIdToken(idToken: string): Record<string, unknown> | null {
  * (OpenID Connect Core 1.0, section 3.1.3.7, item 6). */
 export function verifiedIdentity(
   claims: Record<string, unknown> | null,
-  expected: { clientId: string; nonce: string; nowSeconds: number },
+  expected: { clientId: string; nonce: string; nowSeconds: number; issuers?: ReadonlySet<string> },
 ): { ok: true; email: string; subject: string; name: string | null; picture: string | null } | { ok: false; reason: LoginRefusal } {
   if (!claims) return { ok: false, reason: "falhou" };
-  if (typeof claims.iss !== "string" || !GOOGLE_ISSUERS.has(claims.iss)) return { ok: false, reason: "falhou" };
+  if (typeof claims.iss !== "string" || !(expected.issuers ?? GOOGLE_PROVIDER.issuers).has(claims.iss)) return { ok: false, reason: "falhou" };
   const aud = claims.aud;
   const audiences = Array.isArray(aud) ? aud : [aud];
   if (!audiences.includes(expected.clientId)) return { ok: false, reason: "falhou" };
@@ -243,7 +293,7 @@ export function createGoogleLogin(options: GoogleLoginOptions): GoogleLogin {
 
     let idToken: string;
     try {
-      const response = await fetchImpl(GOOGLE_TOKEN_URL, {
+      const response = await fetchImpl(credentials.provider.tokenUrl, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
         body: new URLSearchParams({
@@ -266,7 +316,7 @@ export function createGoogleLogin(options: GoogleLoginOptions): GoogleLogin {
       return { ok: false, reason: "falhou", returnTo, countsAsFailure: false };
     }
 
-    const identity = verifiedIdentity(decodeIdToken(idToken), { clientId: credentials.clientId, nonce: entry.nonce, nowSeconds: Math.floor(now() / 1000) });
+    const identity = verifiedIdentity(decodeIdToken(idToken), { clientId: credentials.clientId, nonce: entry.nonce, nowSeconds: Math.floor(now() / 1000), issuers: credentials.provider.issuers });
     if (!identity.ok) return { ...identity, returnTo, countsAsFailure: true };
     const scopes = options.allow(identity.email);
     if (!scopes?.length) {
@@ -316,7 +366,7 @@ export function createGoogleLogin(options: GoogleLoginOptions): GoogleLogin {
         expiresAt: now() + LOGIN_STATE_TTL_MS,
       });
       const challenge = createHash("sha256").update(verifier).digest("base64url");
-      const url = new URL(GOOGLE_AUTHORIZE_URL);
+      const url = new URL(credentials.provider.authorizeUrl);
       url.search = new URLSearchParams({
         client_id: credentials.clientId,
         redirect_uri: redirectUri,

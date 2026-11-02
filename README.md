@@ -34,15 +34,16 @@ side by side with the people on your team. Open source, self-hosted, on the AI s
 |---|---|
 | **Mac** (the app) | `curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh \| bash` |
 | **Windows** (the app, in PowerShell) | `irm https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.ps1 \| iex` |
-| **VPS / Linux server** (24/7, with HTTPS) | `curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh \| bash` |
+| **VPS / Linux server** (24/7, at `your-name.nordus.ai`) | `curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh \| bash` |
 
 Prefer clicking? Use the download buttons above. Want an AI to do it? Open [Claude Code](https://claude.com/claude-code),
 Codex or any coding agent and say:
 
 > Install Nordus from https://github.com/Gabriel-Zim/nordus on this computer (or: on my VPS at `root@1.2.3.4`). Follow INSTALL.md.
 
-The agent reads [INSTALL.md](INSTALL.md), which is written for both people and agents, and finishes with your Nordus
-open and signed in.
+The agent reads [INSTALL.md](INSTALL.md), which is written for both people and agents. On a server it shows you one
+link: sign in with Google, choose a name, and your Nordus opens at `your-name.nordus.ai`, with HTTPS, no domain to buy
+and no ports to open. All your servers are listed at [conta.nordus.ai](https://conta.nordus.ai).
 
 ## See it work
 
@@ -115,7 +116,10 @@ every day by a creative agency with dozens of bots serving real clients. Everyth
 - Guests, invite links approved by the owner, and visibility by audience.
 
 **Built for a real team.**
-- **Sign in with Google** with a waiting list for new people, run by your own server ([guide](docs/google-sign-in.md)).
+- **Your address in one click:** `nordus login` links a server to your Nordus account and gives it `your-name.nordus.ai`
+  through a Cloudflare tunnel, with Sign in with Google already working ([how it works](cloudflare/conta)).
+- **Sign in with Google** with a waiting list for new people; the list of who may enter lives on your own server
+  (or bring your own Google client: [guide](docs/google-sign-in.md)).
 - Web Push notifications with the app closed, including iPhone home screen apps, quiet hours and digests.
 - A Board, Drive and Wiki for the team's files and knowledge ([board](docs/board.md), [drive and wiki](docs/drive-wiki.md)).
 - Glass robot avatars with states (working, thinking, waiting) instead of a mascot.

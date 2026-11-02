@@ -22,6 +22,7 @@ import { CompanionSection } from "./CompanionSection";
 import { ServerPairingCard } from "./ServerPairingCard";
 import { PeopleSection } from "./PeopleSection";
 import { GoogleLoginSettings } from "./GoogleLoginSettings";
+import { ContaNordusCard } from "./ContaNordusCard";
 import { ActivitySection } from "./ActivitySection";
 import { HealthSection } from "./HealthSection";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
@@ -813,7 +814,7 @@ export function SettingsModal() {
       case "skills":
         return skillsLibraryEnabled(state.config) ? <SkillsSection /> : null;
       case "people":
-        return <><GoogleLoginSettings /><PeopleSection /></>;
+        return <><ContaNordusCard /><GoogleLoginSettings /><PeopleSection /></>;
       case "activity":
         return <ActivitySection />;
       case "health":

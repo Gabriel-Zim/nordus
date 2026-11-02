@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "nordus-conta",
+  "main": "src/index.ts",
+  "account_id": "f6d68945c990ba10027616fe3192712a",
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [{ "pattern": "conta.nordus.ai", "custom_domain": true }],
+  "assets": { "directory": "./public" },
+  "vars": {
+    "ORIGIN": "https://conta.nordus.ai",
+    "DOMAIN": "nordus.ai",
+    "CF_ACCOUNT_ID": "f6d68945c990ba10027616fe3192712a",
+    "CF_ZONE_ID": "9fa8280ede205c97d1854c46bedb3991",
+    "GOOGLE_CLIENT_ID": "856856650917-afv10gj6t8sanvc6hp3v27ubc9536a49.apps.googleusercontent.com",
+    "MAX_PER_ACCOUNT": "5"
+  },
+  "secrets": { "required": ["CF_API_TOKEN", "GOOGLE_CLIENT_SECRET", "ID_TOKEN_KEY"] },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "nordus-conta", "database_id": "2adc4520-ddd3-450b-b745-4d4c374e80c7", "migrations_dir": "migrations" }
+  ],
+  "triggers": { "crons": ["17 * * * *"] },
+  "observability": { "enabled": true, "logs": { "enabled": true, "head_sampling_rate": 1 } }
+}

@@ -7,8 +7,8 @@ finish by giving them the link that signs them in. Ask only what the guide marks
 Pick one:
 
 1. [**On my computer**](#1-on-my-computer-mac-or-windows): the desktop app for Mac or Windows. Five minutes.
-2. [**On a server (VPS)**](#2-a-server-vps): Nordus runs 24/7 with an HTTPS address, reachable from the browser,
-   the desktop apps and your phone, with Sign in with Google. Ten to fifteen minutes.
+2. [**On a server (VPS)**](#2-a-server-vps): Nordus runs 24/7 at `your-name.nordus.ai`, reachable from the
+   browser, the desktop apps and your phone, with Sign in with Google. Ten to fifteen minutes.
 3. [**Both**](#3-connect-the-apps-to-your-server): the server does the work, and the desktop apps connect to it.
 
 Every path needs at least one AI engine you already have an account for. Nordus does not resell models: bots run on
@@ -64,6 +64,9 @@ install it with `sudo apt install ./Nordus-amd64.deb`.
    (No Node? Get it from [nodejs.org](https://nodejs.org). Installed engines show up in Nordus on their own.)
 2. In Nordus, create your first bot, or open the library and add one of the ready-made bots.
 3. Your bots, chats and settings live in `~/.nordus` on this computer.
+4. **Open it from anywhere (optional):** **Settings → Account → Endereço nordus.ai → Conectar com a conta Nordus**.
+   The browser opens: sign in with Google and choose `your-name.nordus.ai`. While this computer is on, you and the
+   people you invite reach it there with Sign in with Google, from any browser or phone.
 
 The desktop app runs its own server: nothing else to set up. To keep bots working while the computer sleeps, use a
 server (next section).
@@ -74,19 +77,12 @@ server (next section).
 
 **What you need:** a Linux server with Ubuntu 22.04 or 24.04 (or Debian 12), 2 CPUs and 4 GB of RAM or more, and
 root or sudo access. Any provider works (Hetzner, DigitalOcean, Contabo, Hostinger, AWS Lightsail, Oracle, a Mac mini
-in a cupboard...). Ports 80 and 443 must be open in the provider's firewall.
-
-**Question for the person (agents: ask this one):** do you have a domain you want to use, like `nordus.yourcompany.com`?
-- **No domain:** nothing to do. The server gets `https://<its-ip>.sslip.io`, with a real certificate.
-- **Own domain:** create an **A record** pointing the name at the server's IP first, then add `--domain` below.
-- **Private only:** to reach it only from your own devices over [Tailscale](https://tailscale.com), add `--tailscale`.
+in a cupboard...). No domain and no open ports needed.
 
 Connect to the server (`ssh root@YOUR_SERVER_IP`) and run:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash -s -- --yes
-# with your own domain:
-curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash -s -- --yes --domain nordus.yourcompany.com
 ```
 
 What it does, in order (about ten minutes):
@@ -94,31 +90,45 @@ What it does, in order (about ten minutes):
 1. Installs Node 24, git and the build tools.
 2. Creates a `nordus` account that runs the server, downloads Nordus into `/home/nordus/nordus` and builds it.
 3. Installs the Claude Code and Codex command line tools, and the browser the bots use.
-4. Installs the `nordus` service (systemd): it starts on boot, restarts on failure and serves HTTPS through a built-in
-   Caddy that gets the certificate by itself.
-5. Prints **a sign-in link and a QR code**.
+4. **Connects it to your Nordus account.** It prints a link like `https://conta.nordus.ai/ativar?codigo=BCDF-GHJK`
+   and waits. Open it in any browser, sign in with Google, check that the code matches and choose the address,
+   for example `loja-da-ana.nordus.ai`. The code is good for 30 minutes; if it runs out, the installer shows a new one.
+5. Installs the `nordus` service (systemd): it starts on boot, restarts on failure and serves your address through a
+   Cloudflare tunnel, with HTTPS, without opening ports. It works behind a home router too.
+
+When it ends, open your address and choose **Entrar com Google**. The Google account you connected with is the owner,
+with full access. All your servers are listed at [conta.nordus.ai](https://conta.nordus.ai).
+
+**Other addresses**, if you prefer not to use the account:
+
+| Option | Command | Needs |
+| --- | --- | --- |
+| Your own domain | `... \| bash -s -- --yes --domain nordus.yourcompany.com` | An A record pointing at the server; ports 80 and 443 open |
+| `https://<ip>.sslip.io` | `... \| bash -s -- --yes --sslip` | Ports 80 and 443 open |
+| Private, your devices only | `... \| bash -s -- --yes --tailscale` | [Tailscale](https://tailscale.com) |
+
+With these, "Sign in with Google" uses a Google client of your own ([guide](docs/google-sign-in.md)), and the first
+device signs in with the link the installer prints.
 
 ### Finish the setup
 
-1. **Open the sign-in link** in your browser, or scan the QR code with your phone. It signs that device in for 30
-   days, renewed as you use it. Need another link later? Run `nordus pair` on the server.
-2. **Sign the engines in on the server**, once. They use your own subscriptions:
+1. **Sign the engines in on the server**, once. They use your own subscriptions:
 
    ```sh
    sudo -iu nordus claude                      # Claude Code: open the link it prints and paste the code back
    sudo -iu nordus codex login --device-auth   # Codex
    ```
 
-3. **Sign in with Google** (recommended for teams): follow [docs/google-sign-in.md](docs/google-sign-in.md). It takes
-   five minutes in Google Cloud Console; afterwards you and the people you add enter with their Google accounts.
-4. **Phone:** open your address in Safari or Chrome and add it to the home screen. It works like an app, with
+2. **Invite your team:** `nordus access add name@example.com`. They sign in with Google at your address.
+3. **Phone:** open your address in Safari or Chrome and add it to the home screen. It works like an app, with
    notifications ([details](docs/phone-web-app.md)).
 
 ### Everyday commands (on the server)
 
 ```sh
 nordus status                    # what the server says about itself
-nordus pair                      # a new sign-in link for another device
+nordus login                     # connect to your Nordus account again (a new code)
+nordus pair                      # a sign-in link for another device or app
 nordus sessions                  # signed-in devices;  nordus sessions revoke ID
 nordus access add a@gmail.com    # who may sign in with Google
 journalctl -u nordus -f          # live logs
@@ -133,8 +143,7 @@ the service stopped.
 
 ## 3. Connect the apps to your server
 
-- **Browser:** open your server's address (`https://<ip>.sslip.io` or your domain) and sign in with Google or a
-  pairing link.
+- **Browser:** open your server's address (`https://your-name.nordus.ai`, or your domain) and sign in with Google.
 - **Desktop app (Mac or Windows):** run `nordus pair` on the server and copy the link. In the app, open the
   **Server** menu → **Add Server from Copied Pairing Link…**. The same menu switches between this computer and every
   server you added. (In Settings: **Remote access → Connect to another computer → Self-hosted server**.)
@@ -147,18 +156,21 @@ the service stopped.
 - Detect the target: the person's own computer (macOS or Windows → section 1) or a server (Linux → section 2). For a
   remote server, run the commands over `ssh`. Never paste secrets into the chat; engine sign-ins happen in the
   person's browser.
-- On a server, run the installer with `--yes` and, if the person has a domain, `--domain`. Wait for it to finish; it
-  exits non-zero with the reason if anything fails (port 80/443 busy, DNS not pointing at the server, unsupported OS).
+- On a server, run the installer with `--yes`. It stops at "Connect this Nordus to your account" and prints a link
+  and a code: **show both to the person right away** and ask them to open the link, sign in with Google and choose
+  the address. The installer continues by itself when they confirm (it shows a new code if the first one runs out).
+  Use `--domain HOST` only if the person asks for their own domain.
 - Confirm with `nordus status` and `curl -fsS https://<address>/api/health`.
-- Give the person the sign-in link the installer printed (or run `nordus pair`) and tell them to sign the engines in.
-- Optional next steps to offer: Sign in with Google, the phone home screen app, the desktop app connected to the server.
+- Tell the person to open the address and choose **Entrar com Google**, then to sign the engines in.
+- Optional next steps to offer: inviting the team (`nordus access add`), the phone home screen app, the desktop app.
 
 ## Troubleshooting
 
-- **`port 80 is already in use`**: another web server (nginx, Apache) runs there. Stop it, or install with
-  `--tailscale`.
-- **The HTTPS address does not load**: the provider's firewall blocks 80/443, or your domain's A record does not point
-  at the server yet. Fix it and run `sudo systemctl restart nordus`.
+- **The code expired** or the link says "Código inválido": run the installer again (or `nordus login`) for a new one.
+- **The address shows "Cloudflare Tunnel error"**: the server is not running. `sudo systemctl status nordus` and
+  `journalctl -u nordus -n 50` say why.
+- **With `--domain` or `--sslip`**: port 80 or 443 busy means another web server (nginx, Apache) runs there; an address
+  that does not load means the provider's firewall blocks 80/443 or the A record does not point at the server yet.
 - **"Engine not signed in"** in a chat: sign it in again on the server (`sudo -iu nordus claude`).
 - **The browser for bots fails on Ubuntu 24.04** with "No usable sandbox": see the AppArmor note in
   [docs/deploy-vps.md](docs/deploy-vps.md#ubuntu-2404-browser-sandbox).
@@ -171,8 +183,11 @@ the service stopped.
   open source build you use your own free Composio project key: create a project at composio.dev, copy its API key
   and paste it in **Settings → API keys → Self-host connected apps**. On a server you can also start it with
   `COMPOSIO_API_KEY` in the environment. Custom MCP servers need no key.
-- **Managed public address and Nordus Cloud** (`nordus login`, `serve --tunnel`, cloud computers sold in the app) are
-  services of the hosted product and are not part of the open source build. Use the VPS installer (your own HTTPS
-  address), Tailscale, or your own domain instead.
+- **Your Nordus account** ([conta.nordus.ai](https://conta.nordus.ai)) keeps only your Google identity (email, name,
+  photo) and the addresses you chose. Bots, chats and keys stay on your server; the account only passes the sign-in
+  and the tunnel. Up to 5 addresses per account. `nordus logout` on the server releases its address. The service is
+  in [cloudflare/conta](cloudflare/conta).
+- **Nordus Cloud** (cloud computers sold in the app) is a service of the hosted product and is not part of the open
+  source build.
 - **Unsigned builds:** the desktop installers are not signed with paid Apple or Microsoft certificates yet. The
   one-line installers handle the warnings for you; by hand, see the notes in section 1.

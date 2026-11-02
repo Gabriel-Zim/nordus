@@ -7,11 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { allowedScopes } from "./account-signin.ts";
 import { environmentDescriptor } from "./environment.ts";
-import { createAppCodes, createGoogleLogin, GoogleLoginStore, LOGIN_BINDING_COOKIE, safeReturnTo, verifiedIdentity, type GoogleLoginOptions } from "./google-login.ts";
+import { createAppCodes, createGoogleLogin, GoogleLoginStore, LOGIN_BINDING_COOKIE, safeReturnTo, verifiedIdentity, GOOGLE_PROVIDER, type GoogleLoginOptions } from "./google-login.ts";
 import { handleLoginRoutes } from "./google-login-http.ts";
 import { SessionRegistry } from "./sessions.ts";
 
-const CLIENT = { clientId: "123-abc.apps.googleusercontent.com", clientSecret: "segredo-de-teste" };
+const CLIENT = { clientId: "123-abc.apps.googleusercontent.com", clientSecret: "segredo-de-teste", provider: GOOGLE_PROVIDER };
 const LIST = { admins: ["member@example.com", "admin@example.com"], members: [] };
 const REDIRECT = "https://lab.example.com/auth/google/callback";
 
@@ -258,11 +258,55 @@ describe("returning after sign-in", () => {
   });
 });
 
+describe("Entrar com Google through a Nordus account", () => {
+  const CONTA = "https://conta.nordus.ai";
+  const INSTALLATION = "0b7f6c2e-6a43-4c1e-9d55-3f6f1c2b9a10";
+
+  it("sends the person to the account, exchanges the code there with the machine's credential, and trusts only its issuer", async () => {
+    const dir = tempDir();
+    const store = new GoogleLoginStore(dir);
+    store.setConta(CONTA, INSTALLATION, "nordus_install_aaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    expect(store.status()).toMatchObject({ configured: true, clientId: INSTALLATION, conta: CONTA });
+    const credentials = new GoogleLoginStore(dir).credentials()!;
+    expect(credentials.provider.authorizeUrl).toBe(`${CONTA}/oauth/authorize`);
+
+    const claims = (iss: string) => (nonce: string) => ({ ...goodClaims()(nonce), iss, aud: INSTALLATION });
+    for (const [iss, ok] of [[CONTA, true], ["https://accounts.google.com", false]] as const) {
+      const google = fakeGoogle(claims(iss));
+      const urls: string[] = [];
+      const fetchImpl: typeof fetch = async (input, init) => {
+        urls.push(String(input));
+        return google.fetchImpl(input, init);
+      };
+      const login = createGoogleLogin({ credentials: () => credentials, allow: (email) => allowedScopes(email, LIST), fetchImpl });
+      const started = login.begin({ redirectUri: REDIRECT });
+      if (!started.ok) throw new Error(started.reason);
+      const params = new URL(started.url).searchParams;
+      expect(started.url.startsWith(`${CONTA}/oauth/authorize?`)).toBe(true);
+      expect(params.get("client_id")).toBe(INSTALLATION);
+      google.seen.challenge = params.get("code_challenge")!;
+      google.seen.nonce = params.get("nonce")!;
+      const done = await login.finish({ query: new URLSearchParams({ state: params.get("state")!, code: "codigo-do-google" }), binding: started.binding });
+      expect(urls).toEqual([`${CONTA}/oauth/token`]);
+      expect(google.seen.body?.get("client_secret")).toMatch(/^nordus_install_/);
+      expect(done.ok).toBe(ok);
+    }
+  });
+
+  it("does not keep the machine's credential when the owner saves their own Google client without a secret", () => {
+    const store = new GoogleLoginStore(tempDir());
+    store.setConta(CONTA, INSTALLATION, "nordus_install_aaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    expect(() => store.set(CLIENT.clientId, null)).toThrow(/secreta/);
+    store.set(CLIENT.clientId, CLIENT.clientSecret);
+    expect(store.credentials()).toEqual(CLIENT);
+  });
+});
+
 describe("the saved client", () => {
   it("seals the secret, keeps it on a blank save and never shows it", () => {
     const dir = tempDir();
     const store = new GoogleLoginStore(dir);
-    expect(store.status()).toEqual({ configured: false, clientId: null, updatedAt: null });
+    expect(store.status()).toEqual({ configured: false, clientId: null, conta: null, updatedAt: null });
     expect(() => store.set("nao-e-google", "x")).toThrow(/googleusercontent/);
     expect(() => store.set(CLIENT.clientId, "")).toThrow(/secreta/);
     store.set(CLIENT.clientId, CLIENT.clientSecret);

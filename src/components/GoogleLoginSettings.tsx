@@ -6,7 +6,7 @@ import { sessionOnce } from "../lib/session";
 import { canPairDevices } from "./ServerPairingCard";
 import { Card } from "./SettingsPrimitives";
 
-interface GoogleLoginView { configured: boolean; clientId: string | null; updatedAt: number | null; redirectUri: string | null }
+interface GoogleLoginView { configured: boolean; clientId: string | null; conta?: string | null; updatedAt: number | null; redirectUri: string | null }
 
 const field = "rounded-[10px] border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[13px] text-ink focus:border-focus focus:outline-none";
 
@@ -23,7 +23,7 @@ export function GoogleLoginSettings() {
   const load = useCallback(async () => {
     const next = await api("/api/google-login").catch(() => null) as GoogleLoginView | null;
     setView(next);
-    if (next?.clientId) setClientId(next.clientId);
+    if (next?.clientId && !next.conta) setClientId(next.clientId);
   }, []);
   useEffect(() => {
     void sessionOnce().then((state) => {
@@ -42,6 +42,14 @@ export function GoogleLoginSettings() {
   };
   const save = () => run(() => api("/api/google-login", { method: "PUT", body: JSON.stringify({ clientId, clientSecret: secret }) }));
   const turnOff = () => run(() => api("/api/google-login", { method: "DELETE" }));
+
+  if (view.conta) {
+    return (
+      <Card title="Login com Google" subtitle="Só entra quem estiver na lista de pessoas abaixo.">
+        <p className="text-[12.5px] text-ink-secondary">Ligado pela sua conta Nordus ({view.conta.replace("https://", "")}): nada para configurar no Google. Para usar um cliente Google seu, desconecte o endereço nordus.ai acima.</p>
+      </Card>
+    );
+  }
 
   return (
     <Card title="Login com Google" subtitle="A tela de entrada da Nordus usa este cliente do Google. Só entra quem estiver na lista de pessoas abaixo.">

@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { allowedScopes } from "./account-signin.ts";
 import { environmentDescriptor } from "./environment.ts";
-import { APP_CALLBACKS, APP_CODE_TTL_MS, createAppCodes, createGoogleLogin, LOGIN_BINDING_COOKIE } from "./google-login.ts";
+import { APP_CALLBACKS, APP_CODE_TTL_MS, createAppCodes, createGoogleLogin, GOOGLE_PROVIDER, LOGIN_BINDING_COOKIE } from "./google-login.ts";
 import { handleLoginRoutes } from "./google-login-http.ts";
 import { resolveRequestAuth } from "./request-auth.ts";
 import { LOCKOUT, SessionRegistry } from "./sessions.ts";
 
-const CLIENT = { clientId: "123-abc.apps.googleusercontent.com", clientSecret: "segredo-de-teste" };
+const CLIENT = { clientId: "123-abc.apps.googleusercontent.com", clientSecret: "segredo-de-teste", provider: GOOGLE_PROVIDER };
 const LIST = { admins: ["member@example.com"], members: [] };
 const COOKIE = "nordus_session_fixture";
 const VERIFIER = "v".repeat(43);

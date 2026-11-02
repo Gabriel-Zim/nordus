@@ -15,7 +15,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
@@ -51,6 +51,7 @@ import {
   fleetAccess,
   fleetCredential,
   guardianEntry,
+  platformName,
   startTunnel,
   tunnelAccess,
   type CompanionOriginEndpoint,
@@ -59,6 +60,17 @@ import {
   type TunnelAccount,
   type TunnelRecovery,
 } from "./tunnel.ts";
+import {
+  ActivationExpired,
+  connectAccount,
+  contaOrigin,
+  contaTunnelAccess,
+  readContaLink,
+  releaseContaAddress,
+  removeContaLink,
+  saveContaLink,
+} from "./conta-nordus.ts";
+import { GoogleLoginStore } from "./google-login.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -468,7 +480,10 @@ export async function runStatus(options: CliOptions, io: CliIo = defaultIo()): P
   }
   if (!options.json) {
     const account = describeTunnelAccount(createTunnelAccount({ dataDir: options.dataDir, version: serverVersion() }).credentials.read());
+    let link = null;
+    try { link = readContaLink(options.dataDir); } catch (error) { io.error(message(error)); }
     if (fleetCredential()) io.log(`public address: managed by the fleet (${FLEET_CREDENTIAL_ENV} is set; the address is fetched when serve --tunnel starts)`);
+    else if (link) io.log(`public address: ${link.address} (Nordus account ${link.email ?? "?"}; serve it with --tunnel)`);
     else if (account.address) io.log(`public address: ${account.address} (signed in as ${account.email ?? "?"}; serve it with --tunnel)`);
   }
   return code;
@@ -547,7 +562,68 @@ export async function runAccess(options: CliOptions, io: CliIo = defaultIo()): P
   return 0;
 }
 
+/** A rounded box around a few lines, for the two moments a person has to read the terminal. */
+export function framed(lines: string[]): string[] {
+  const width = Math.max(...lines.map((line) => line.length));
+  return [`  ╭${"─".repeat(width + 4)}╮`, ...lines.map((line) => `  │  ${line.padEnd(width)}  │`), `  ╰${"─".repeat(width + 4)}╯`];
+}
+
+/** Links this machine to a Nordus account: a code to confirm in the browser, then an address and the Google sign-in. */
+export async function runContaLogin(options: CliOptions, io: CliIo = defaultIo(), deps: { fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void>; codes?: number } = {}): Promise<number> {
+  let origin: string;
+  try {
+    origin = contaOrigin();
+  } catch (error) {
+    io.error(message(error));
+    return 1;
+  }
+  let link;
+  try {
+    link = await connectAccount({
+      origin,
+      machine: options.label ?? hostname(),
+      platform: platformName(),
+      appVersion: serverVersion(),
+      codes: deps.codes,
+      fetchImpl: deps.fetchImpl,
+      sleep: deps.sleep,
+      onCode: (activation, attempt) => {
+        io.log("");
+        for (const line of framed([
+          attempt === 1 ? "Connect this Nordus to your account" : "That code expired. Here is a new one",
+          "",
+          `1. Open     ${activation.verificationUrl}`,
+          `2. Check    the code ${activation.userCode}`,
+          "3. Sign in  with Google and choose your-name.nordus.ai",
+        ])) io.log(line);
+        io.log(`   Waiting for the confirmation (the code is good for ${Math.round(activation.expiresInSeconds / 60)} minutes)…`);
+      },
+    });
+  } catch (error) {
+    if (error instanceof ActivationExpired) io.error(`${error.message}; run login again for a new code`);
+    else io.error(error instanceof Error && error.message.startsWith(origin) ? error.message : `could not reach ${origin}: ${message(error)}`);
+    return 1;
+  }
+  saveContaLink(options.dataDir, link);
+  new GoogleLoginStore(options.dataDir).setConta(link.controlPlane, link.installationId, link.credential);
+  if (link.email) {
+    const quiet: CliIo = { log: () => {}, error: io.error, ask: io.ask };
+    const added = await runAccess({ ...options, command: "access", accessAction: "add", email: link.email, chatOnly: false, guest: false }, quiet);
+    if (added !== 0) return added;
+  }
+  io.log("");
+  for (const line of framed([
+    `Connected: ${link.address}`,
+    "",
+    ...(link.email ? [`${link.email} signs in there with Google (full access).`, "Invite more people:  nordus access add EMAIL"] : []),
+    "Serve it there:      nordus serve --tunnel",
+    "Keep it running:     nordus service install --tunnel",
+  ])) io.log(line);
+  return 0;
+}
+
 export async function runLogin(options: CliOptions, io: CliIo = defaultIo()): Promise<number> {
+  if (!options.email) return runContaLogin(options, io);
   const account = createTunnelAccount({ dataDir: options.dataDir, version: serverVersion() });
   if (fleetCredential()) io.log(`note: ${FLEET_CREDENTIAL_ENV} is set, so serve --tunnel will use that credential rather than this account`);
   if (account.credentials.status === "unavailable") {
@@ -591,6 +667,25 @@ export async function runLogin(options: CliOptions, io: CliIo = defaultIo()): Pr
 }
 
 export async function runLogout(options: CliOptions, io: CliIo = defaultIo()): Promise<number> {
+  let link;
+  try {
+    link = readContaLink(options.dataDir);
+  } catch (error) {
+    io.error(message(error));
+    return 1;
+  }
+  if (link) {
+    try {
+      await releaseContaAddress(link);
+    } catch (error) {
+      io.error(`could not release ${link.address}: ${message(error)}. Remove it at ${link.controlPlane}`);
+    }
+    removeContaLink(options.dataDir);
+    const store = new GoogleLoginStore(options.dataDir);
+    if (store.status().conta) store.remove();
+    io.log(`Disconnected from the Nordus account ${link.email ?? ""}; ${link.address} no longer reaches this machine.`.replace("  ", " "));
+    return 0;
+  }
   const account = createTunnelAccount({ dataDir: options.dataDir, version: serverVersion() });
   const before = describeTunnelAccount(account.credentials.read());
   if (!before.email) {
@@ -679,7 +774,22 @@ async function planTunnel(options: CliOptions, log: (line: string) => void, reco
     return { error };
   };
   const credential = fleetCredential();
-  if (credential) {
+  let link = null;
+  if (!credential) {
+    try {
+      link = readContaLink(options.dataDir);
+    } catch (error) {
+      return { error: message(error) };
+    }
+  }
+  if (link) {
+    log(`tunnel: ${link.address} (Nordus account ${link.email ?? "?"})`);
+    try {
+      access = await contaTunnelAccess(link, { version: serverVersion() });
+    } catch (error) {
+      return { error: `--tunnel: ${message(error)}` };
+    }
+  } else if (credential) {
     log(`tunnel: using the installation credential from ${FLEET_CREDENTIAL_ENV}`);
     try {
       access = await fleetAccess({ credential, version: serverVersion() });
@@ -690,7 +800,7 @@ async function planTunnel(options: CliOptions, log: (line: string) => void, reco
     account = createTunnelAccount({ dataDir: options.dataDir, version: serverVersion(), recovery, log: (line) => log(`tunnel: ${line}`) });
     if (account.credentials.status === "unavailable") return fail(`${account.credentials.file} exists but could not be read; fix or remove it`);
     if (!describeTunnelAccount(account.credentials.read()).email) {
-      return fail("no account on this machine yet: run `nordus login` first, then `nordus serve --tunnel`");
+      return fail("this machine has no public address yet: run `nordus login` first, then `nordus serve --tunnel`");
     }
     try {
       const state = await account.service.retry();

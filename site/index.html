@@ -225,7 +225,7 @@
           <div class="card"><div class="ic">J</div><h4>Decisões com o Jev</h4><p>Um modelo de decisão rápido escolhe quem responde na sala e libera os passos de rotina, dentro de limites por tarefa e por dia.</p></div>
           <div class="card"><div class="ic">◉</div><h4>Navegador ao vivo</h4><p>Veja o robô navegar e assuma o controle quando quiser. Os logins ficam guardados por perfil, sem entregar senhas.</p></div>
           <div class="card"><div class="ic">⌂</div><h4>Um computador para cada robô</h4><p>Máquina virtual isolada, a sua VPS ou, se você permitir, o seu próprio computador.</p></div>
-          <div class="card"><div class="ic">G</div><h4>Entrar com Google</h4><p>O seu servidor tem a própria tela de entrada com Google e a lista de quem pode entrar.</p></div>
+          <div class="card"><div class="ic">G</div><h4>Seu endereço, com Google</h4><p>Conecte com a sua conta e o Nordus abre em seu-nome.nordus.ai, com HTTPS e Entrar com Google, sem domínio e sem abrir portas.</p></div>
           <div class="card"><div class="ic">AI</div><h4>Nas assinaturas que você já tem</h4><p>Claude, Codex, Grok, Gemini e Kimi. Cada robô escolhe o seu modelo, e nada passa por revenda.</p></div>
           <div class="card"><div class="ic">24</div><h4>Rotinas e avisos</h4><p>Rotinas que rodam sozinhas, memória de longo prazo e avisos no celular, mesmo com o app fechado.</p></div>
         </div>
@@ -243,14 +243,15 @@
             <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash</pre></div>
           <div class="card"><h4>No Windows</h4><p>No PowerShell, para Windows 10 e 11.</p>
             <pre>irm https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.ps1 | iex</pre></div>
-          <div class="card"><h4>Numa VPS, 24 horas</h4><p>Ubuntu ou Debian, com HTTPS automático mesmo sem domínio.</p>
+          <div class="card"><h4>Numa VPS, 24 horas</h4><p>Ubuntu ou Debian. No fim, você entra com o Google e escolhe o endereço seu-nome.nordus.ai.</p>
             <pre>curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash -s -- --yes</pre></div>
         </div>
         <div class="ai">
           <div class="card"><h4>Ou peça para uma IA</h4><p>No Claude Code, no Codex ou noutro agente de programação:</p>
             <pre>Instale o Nordus de https://github.com/Gabriel-Zim/nordus neste computador (ou na minha VPS root@1.2.3.4). Siga o INSTALL.md.</pre></div>
-          <div class="card" id="abrir"><h4>Já tenho um servidor Nordus</h4><p>Cole o endereço do seu Nordus. Ele fica guardado neste navegador, e você entra com Google ou com o link de entrada.</p>
-            <form id="open-form" class="row"><input id="server-url" type="url" inputmode="url" placeholder="https://seu-servidor" required><button class="btn" type="submit">Abrir meu Nordus</button></form>
+          <div class="card" id="abrir"><h4>Já tenho um servidor Nordus</h4><p>Entre na sua conta Nordus com o Google para ver os seus servidores e abrir qualquer um. Usa um domínio próprio? Cole o endereço abaixo.</p>
+            <div class="row" style="margin-bottom:10px"><a class="btn" href="https://conta.nordus.ai">Entrar na minha conta</a></div>
+            <form id="open-form" class="row"><input id="server-url" type="url" inputmode="url" placeholder="https://seu-servidor" required><button class="btn ghost" type="submit">Abrir</button></form>
             <div id="servers" class="servers"></div></div>
         </div>
       </div>

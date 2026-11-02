@@ -3,8 +3,9 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/Gabriel-Zim/nordus/main/install.sh | bash
 #
-# Linux (Ubuntu or Debian): installs the Nordus server as a service with HTTPS and prints the link that signs
-# your first device in. macOS: installs the desktop app. Run with --help for every option.
+# Linux (Ubuntu or Debian): installs the Nordus server as a service and connects it to your Nordus account
+# (sign in with Google at conta.nordus.ai), which gives it the address your-name.nordus.ai with HTTPS and no
+# open ports. macOS: installs the desktop app. Run with --help for every option.
 set -euo pipefail
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
@@ -17,6 +18,7 @@ SERVICE_USER="nordus"
 MODE=""
 DOMAIN=""
 USE_TAILSCALE=0
+USE_SSLIP=0
 INSTALL_ENGINES=1
 INSTALL_BROWSER=1
 REF="main"
@@ -39,10 +41,12 @@ Modes (chosen automatically when omitted):
   --server            Install the Nordus server (default on Linux). Runs 24/7 as a service.
   --desktop           Install the desktop app (default on macOS).
 
-Server options:
-  --domain HOST       Serve at https://HOST. Point HOST's DNS (A record) at this machine first.
-                      Without --domain or --tailscale, the address is https://<your-ip>.sslip.io,
-                      with a real certificate and no domain to buy.
+Server options (the address):
+  (default)           Connect to your Nordus account: the installer shows a link, you sign in with Google
+                      and choose your-name.nordus.ai. HTTPS, no domain to buy, no ports to open, works
+                      behind a home router too. You and the people you invite sign in with Google.
+  --domain HOST       Serve at https://HOST instead. Point HOST's DNS (A record) at this machine first.
+  --sslip             Serve at https://<your-ip>.sslip.io (needs ports 80 and 443 open).
   --tailscale         Serve only inside your Tailscale network (nothing public).
   --label NAME        Name this server shows in the apps (default: the machine's host name).
   --no-engines        Do not install the Claude Code and Codex command line tools.
@@ -58,6 +62,7 @@ while [ $# -gt 0 ]; do
     --desktop|--app) MODE=desktop ;;
     --domain|--dominio) DOMAIN="${2:?--domain needs a host name}"; shift ;;
     --tailscale) USE_TAILSCALE=1 ;;
+    --sslip) USE_SSLIP=1 ;;
     --label) LABEL="${2:?--label needs a name}"; shift ;;
     --no-engines|--sem-motores) INSTALL_ENGINES=0 ;;
     --no-browser|--sem-navegador) INSTALL_BROWSER=0 ;;
@@ -119,7 +124,9 @@ Nordus is open. Next:
        Claude Code:  npm install -g @anthropic-ai/claude-code && claude
        Codex:        npm install -g @openai/codex && codex login
   2. Create your first bot in the app. Your data stays in ~/.nordus.
-  3. To use a Nordus server you installed on a VPS, open the Server menu and choose
+  3. Open it from anywhere at your-name.nordus.ai, with Sign in with Google:
+     Settings → Account → "Conectar com a conta Nordus".
+  4. To use a Nordus server you installed on a VPS, open the Server menu and choose
      "Add Server from Copied Pairing Link…".
 
 Full guide: $REPO_URL/blob/main/INSTALL.md
@@ -230,6 +237,47 @@ public_ipv4() {
 
 port_busy() { as_root ss -ltnH "( sport = :$1 )" 2>/dev/null | grep -q .; }
 
+ACCOUNT_ADDRESS=""
+ACCOUNT_EMAIL=""
+
+# The address and owner the account gave this machine, from conta-nordus.json in its data folder.
+read_account_link() {
+  local run="$1" file="$2" out
+  out="$($run node -e 'try{const l=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.log((l.address||"")+" "+(l.email||""))}catch{}' "$file" 2>/dev/null)"
+  ACCOUNT_ADDRESS="${out%% *}"
+  ACCOUNT_EMAIL="${out#* }"
+  [ -n "$ACCOUNT_ADDRESS" ]
+}
+
+# `nordus login` prints a link and a code, then waits until the person confirms them in a browser.
+connect_account() {
+  local run="$1" file="$2"
+  if read_account_link "$run" "$file"; then
+    ok "already connected: $ACCOUNT_ADDRESS"
+    return
+  fi
+  echo
+  say "Connecting this Nordus to your account"
+  local args=(login)
+  [ -n "$LABEL" ] && args+=(--label "$LABEL")
+  $run node --experimental-strip-types "$NORDUS_DIR/server/nordus.ts" "${args[@]}" \
+    || die "the account was not connected. Run the installer again for a new code (or use --domain HOST or --sslip)."
+  read_account_link "$run" "$file" || die "the account link was not saved in $file"
+  ok "connected: $ACCOUNT_ADDRESS"
+}
+
+wait_for_address() {
+  say "Waiting for $1 to answer"
+  for _ in $(seq 1 60); do
+    if curl -fsS --max-time 4 "$1/api/health" >/dev/null 2>&1; then
+      ok "$1 is live"
+      return 0
+    fi
+    sleep 3
+  done
+  warn "$1 is not answering yet. See the logs: journalctl -u nordus -f"
+}
+
 choose_address() {
   if [ "$USE_TAILSCALE" -eq 1 ]; then
     command -v tailscale >/dev/null || { say "Installing Tailscale"; curl -fsSL https://tailscale.com/install.sh | as_root sh >/dev/null; }
@@ -237,12 +285,17 @@ choose_address() {
     SERVE_ARGS=(--tailscale)
     return
   fi
+  if [ -z "$DOMAIN" ] && [ "$USE_SSLIP" -eq 0 ]; then
+    connect_account "$1" "$2"
+    SERVE_ARGS=(--tunnel)
+    return
+  fi
   if [ -z "$DOMAIN" ]; then
     local ip
     ip="$(public_ipv4)"
     [ -n "$ip" ] || die "could not find this server's public IP. Use --domain HOST or --tailscale."
     DOMAIN="${ip//./-}.sslip.io"
-    say "No domain given: using https://$DOMAIN (sslip.io points this name at $ip)"
+    say "Using https://$DOMAIN (sslip.io points this name at $ip)"
   fi
   for port in 80 443; do
     port_busy "$port" && die "port $port is already in use on this server (another web server?). Stop it, or install with --tailscale."
@@ -297,6 +350,27 @@ wait_for_https() {
   warn "https://$DOMAIN is not answering yet. Check that its DNS points at this server and that ports 80 and 443 are open in your provider's firewall."
 }
 
+print_account_steps() {
+  local address="$1"
+  cat <<EOF
+
+────────────────────────────────────────────────────────────────────────────
+ Nordus is running at $address
+
+ 1. Open $address and choose "Entrar com Google"
+    (as ${ACCOUNT_EMAIL:-the account you connected}). All your servers: https://conta.nordus.ai
+ 2. Sign the engines in on this server, once (they use your own subscriptions):
+      sudo -iu $SERVICE_USER claude              # Claude Code: follow the link it prints
+      sudo -iu $SERVICE_USER codex login --device-auth
+ 3. Invite someone (they sign in with Google too):  nordus access add name@example.com
+ 4. Phone and desktop apps: 'nordus pair' prints a link that signs a device in.
+
+ Update later:   curl -fsSL $RAW_URL/install.sh | bash
+ Status:         nordus status    ·    Logs: journalctl -u nordus -f
+────────────────────────────────────────────────────────────────────────────
+EOF
+}
+
 print_next_steps() {
   local address="$1"
   echo
@@ -334,9 +408,15 @@ install_server_linux() {
   install_browser "$dir"
   # An update: the running server holds ports 80 and 443 itself; it restarts with the new version below.
   as_root systemctl stop nordus >/dev/null 2>&1 || true
-  choose_address
+  NORDUS_DIR="$dir"
+  choose_address as_service "$SERVICE_HOME/.nordus/conta-nordus.json"
   install_linux_service "$dir"
   wait_until_ready
+  if [ -n "$ACCOUNT_ADDRESS" ]; then
+    wait_for_address "$ACCOUNT_ADDRESS"
+    print_account_steps "$ACCOUNT_ADDRESS"
+    return
+  fi
   wait_for_https
   print_next_steps "${DOMAIN:+https://$DOMAIN}"
 }
@@ -362,7 +442,10 @@ exec node --experimental-strip-types "$dir/server/nordus.ts" "\$@"
 EOF
   chmod 755 "$HOME/.local/bin/nordus"
   local args=()
-  if [ -n "$DOMAIN" ]; then args=(--domain "$DOMAIN"); elif [ "$USE_TAILSCALE" -eq 1 ]; then args=(--tailscale); fi
+  NORDUS_DIR="$dir"
+  if [ -n "$DOMAIN" ]; then args=(--domain "$DOMAIN")
+  elif [ "$USE_TAILSCALE" -eq 1 ]; then args=(--tailscale)
+  else connect_account "" "$HOME/.nordus/conta-nordus.json"; args=(--tunnel); fi
   [ -n "$LABEL" ] && args+=(--label "$LABEL")
   node --experimental-strip-types "$dir/server/nordus.ts" service install "${args[@]}" >/dev/null
   local plist="$HOME/Library/LaunchAgents/ai.nordus.serve.plist"
@@ -372,9 +455,11 @@ EOF
   launchctl bootstrap "gui/$(id -u)" "$plist"
   ok "Nordus server running on this Mac (starts with your login)"
   for _ in $(seq 1 60); do curl -fsS --max-time 2 http://127.0.0.1:8799/api/health >/dev/null 2>&1 && break; sleep 2; done
-  open "http://127.0.0.1:8799" || true
+  local address="${ACCOUNT_ADDRESS:-http://127.0.0.1:8799}"
+  [ -n "$ACCOUNT_ADDRESS" ] && wait_for_address "$ACCOUNT_ADDRESS"
+  open "$address" || true
   echo
-  echo "Open http://127.0.0.1:8799 on this Mac. Add ~/.local/bin to your PATH to use the 'nordus' command."
+  echo "Open $address${ACCOUNT_ADDRESS:+ and choose \"Entrar com Google\"}. Add ~/.local/bin to your PATH to use the 'nordus' command."
 }
 
 case "$MODE" in
