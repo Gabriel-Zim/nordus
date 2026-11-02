@@ -58,7 +58,7 @@ export function parseOwner(value: unknown): { ok: true; owner: string | null } |
 export const OWNER_BOT_PATCH_FIELDS: ReadonlySet<string> = new Set([
   ...CLIENT_BOT_PATCH_FIELDS,
   ...BOT_PROFILE_PATCH_FIELDS,
-  "memoryEnabled", "taskSessions", "voiceNotes", "xResearch", "parkDirectMessages",
+  "memoryEnabled", "voiceNotes", "xResearch", "parkDirectMessages",
 ]);
 
 export function ownerBotPatchViolation(body: unknown): string | null {

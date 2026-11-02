@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  appChordFor,
   commandPaletteKeys,
   filterShortcutGroups,
   SHORTCUT_GROUPS,
@@ -31,7 +32,7 @@ describe("keyboard-shortcuts", () => {
   it("resolves correct keys for Mac and Windows", () => {
     const sampleItem = {
       id: "test",
-      description: "Test shortcut",
+      description: "shortcuts.item.newBot" as const,
       macKeys: ["⌘", "K"],
       winKeys: ["Ctrl", "K"],
     };
@@ -74,7 +75,7 @@ describe("keyboard-shortcuts", () => {
     expect(row(mod, "new-line")).toMatchObject({ macKeys: ["Return"], winKeys: ["Enter"] });
     for (const groups of [shift, mod]) {
       expect(row(groups, "save-bulletin")).toBe(row(SHORTCUT_GROUPS, "save-bulletin"));
-      expect(row(groups, "send-message").description).toBe("Send message");
+      expect(row(groups, "send-message").description).toBe("shortcuts.item.sendMessage");
       expect(groups.map((group) => group.items.map((item) => item.id))).toEqual(SHORTCUT_GROUPS.map((group) => group.items.map((item) => item.id)));
     }
   });
@@ -85,6 +86,31 @@ describe("keyboard-shortcuts", () => {
     expect(switchBot.macKeys.at(-1)).toBe("[ / ]");
     expect(switchBot.winKeys.at(-1)).toBe("[ / ]");
     expect(items.some((item) => [...item.macKeys, ...item.winKeys].includes("Double-click"))).toBe(false);
+  });
+});
+
+describe("app chords", () => {
+  const chord = (key: string, extra: Partial<KeyboardEvent> = {}) => appChordFor({ key, code: "", metaKey: false, ctrlKey: true, shiftKey: false, altKey: false, ...extra });
+
+  it("opens a new bot, a new conversation and the settings on Windows, Linux and the web", () => {
+    expect(chord("n")).toBe("new-bot");
+    expect(chord("O", { shiftKey: true })).toBe("new-conversation");
+    expect(chord(",")).toBe("open-settings");
+    expect(chord(";", { code: "Comma" })).toBe("open-settings");
+  });
+
+  it("uses Cmd on a Mac and ignores bare keys and extra modifiers", () => {
+    expect(chord("n", { ctrlKey: false, metaKey: true })).toBe("new-bot");
+    expect(chord("n", { ctrlKey: false })).toBeNull();
+    expect(chord("o")).toBeNull();
+    expect(chord("n", { shiftKey: true })).toBeNull();
+    expect(chord(",", { altKey: true })).toBeNull();
+  });
+
+  it("lists the new chords on the cheat sheet", () => {
+    const items = SHORTCUT_GROUPS.flatMap((group) => group.items);
+    expect(items.find((item) => item.id === "new-conversation")).toMatchObject({ winKeys: ["Ctrl", "Shift", "O"] });
+    expect(items.find((item) => item.id === "open-settings")).toMatchObject({ winKeys: ["Ctrl", ","] });
   });
 });
 

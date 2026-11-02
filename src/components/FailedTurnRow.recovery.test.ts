@@ -34,8 +34,10 @@ describe("a failed turn's way out", () => {
   it("a restart after the bot already did work warns that part may be done, and offers to look and resume instead of asking again", () => {
     setLocale("pt-br");
     const markup = html(failedTurnTool("turn interrupted — Nordus AI restarted", { done: 3 }));
-    expect(headline(markup)).toBe("O Nordus reiniciou no meio do trabalho. Eu já tinha feito 3 passos. Confira o que ficou pronto e toque em retomar que eu sigo sem repetir.");
-    expect(buttons(markup)).toEqual(["Ver o que já foi feito", "Retomar"]);
+    expect(headline(markup)).toBe("Parei depois de 3 passos");
+    expect(markup).toContain("O Nordus reiniciou no meio do trabalho.");
+    expect(markup).toContain("Ao retomar, eu sigo de onde parei sem refazer nada.");
+    expect(buttons(markup)).toEqual(["Retomar", "Ver o que já foi feito"]);
     expect(markup).not.toContain("Se precisar, peça de novo");
   });
 
@@ -73,8 +75,9 @@ describe("a failed turn's way out", () => {
     const markup = renderToStaticMarkup(createElement(FailedTurnRow, {
       tool: { name: "error: no activity for 20 minutes — the turn was stopped", ok: false }, engine: undefined, onRetry: vi.fn(), botId: "b1", threadId: "t1", doneSteps: ["Rodar um comando"],
     }));
-    expect(headline(markup)).toBe("Parei no meio do trabalho. Eu já tinha feito 1 passo. Confira o que ficou pronto e toque em retomar que eu sigo sem repetir.");
-    expect(buttons(markup)).toEqual(["Ver o que já foi feito", "Retomar"]);
+    expect(headline(markup)).toBe("Parei depois de 1 passo");
+    expect(markup).toContain("A IA ficou 20 minutos sem responder, então eu parei.");
+    expect(buttons(markup)).toEqual(["Retomar", "Ver o que já foi feito"]);
   });
 
   it("the server's own count wins over steps the conversation shows from earlier turns", () => {
@@ -92,16 +95,41 @@ describe("a failed turn's way out", () => {
     const markup = renderToStaticMarkup(createElement(FailedTurnRow, {
       tool: failedTurnTool("Not logged in · Please run /login", { setup: true, done: 1 }), engine: undefined, onRetry: vi.fn(), botId: "b1", threadId: "t1",
     }));
-    expect(buttons(markup)).toEqual(["Ver o que já foi feito", "Entrar na conta", "Retomar"]);
+    expect(buttons(markup)).toEqual(["Entrar na conta", "Retomar", "Ver o que já foi feito"]);
     const withEngine = renderToStaticMarkup(createElement(FailedTurnRow, {
       tool: failedTurnTool("Not logged in · Please run /login", { setup: true, done: 1 }), engine, onRetry: vi.fn(), botId: "b1", threadId: "t1",
     }));
-    expect(buttons(withEngine)).toEqual(["Ver o que já foi feito", "Entrar na conta", "Retomar"]);
+    expect(buttons(withEngine)).toEqual(["Entrar na conta", "Retomar", "Ver o que já foi feito"]);
   });
 
   it("an older failure row, without Retry, does not offer to resume either", () => {
     setLocale("pt-br");
     expect(buttons(html(failedTurnTool("turn interrupted — Nordus AI restarted", { done: 2 }), false))).toEqual(["Ver o que já foi feito"]);
+  });
+
+  it("a passing stop on the latest row counts down to resume on its own, with a way to say no", () => {
+    setLocale("pt-br");
+    const row = (autoResume: boolean, cause = "turn interrupted — Nordus AI restarted") => renderToStaticMarkup(createElement(FailedTurnRow, {
+      tool: failedTurnTool(cause, { done: 4 }), engine: undefined, onRetry: vi.fn(), botId: "b1", threadId: "t1", messageId: "m9", autoResume,
+    }));
+    expect(row(true)).toContain("Retomando sozinho em 10 s");
+    expect(buttons(row(true))).toContain("Não retomar");
+    expect(row(false)).not.toContain("data-auto-resume");
+    expect(row(true, "This Claude account has reached its 5-hour limit")).not.toContain("data-auto-resume");
+  });
+
+  it("a stop with no class gives its reason in plain words, or says the reason is unknown, never the engine's words", () => {
+    setLocale("pt-br");
+    const plain = html(failedTurnTool("ENOENT: /srv/nordus/threads/t1/tool.json", { done: 2 }));
+    expect(headline(plain)).toBe("Parei depois de 2 passos");
+    expect(plain.split("<details")[0]).toContain("Não foi possível encontrar isso.");
+    const unknown = html(failedTurnTool("The session went away with the tool call", { done: 2 }));
+    expect(unknown.split("<details")[0]).toContain("Não consegui saber o motivo exato.");
+  });
+
+  it("an engine that went down mid-work leads with resuming, the engines page second", () => {
+    setLocale("pt-br");
+    expect(buttons(html(failedTurnTool("API Error: 529 Overloaded", { done: 2 })))).toEqual(["Retomar", "Ver contas de IA", "Ver o que já foi feito"]);
   });
 });
 

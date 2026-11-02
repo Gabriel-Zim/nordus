@@ -56,7 +56,6 @@ const botFields = {
   mcpServers: z.array(z.string().trim().min(1)).optional(),
   /** The bot always runs on its chosen model; the decision model never sizes it down. */
   modelFixed: z.boolean().optional(),
-  taskSessions: z.boolean().optional(),
 };
 
 const teamFileSchema = z.object({
@@ -126,7 +125,6 @@ export interface DesiredBot {
   /** [] mounts none; absent: left as it is. */
   mcpServers?: string[];
   modelFixed?: boolean;
-  taskSessions?: boolean;
   audience?: "internal" | "client";
   client?: string;
   /** Teams whose bots may reach this one; [] closes it; absent: left as it is. */
@@ -272,7 +270,6 @@ export function checkTeamFile(input: TeamFileInput, file: string, dir: string): 
       ...(bot.computer ? { computer: bot.computer } : {}), ...(cwd ? { cwd } : {}), ...(browser ? { browser } : {}),
       ...(tools !== undefined ? { tools } : {}), skills,
       ...(bot.mcpServers ? { mcpServers: [...new Set(bot.mcpServers)] } : {}), ...(bot.modelFixed !== undefined ? { modelFixed: bot.modelFixed } : {}),
-      ...(bot.taskSessions !== undefined ? { taskSessions: bot.taskSessions } : {}),
       ...(bot.audience ? { audience: bot.audience } : {}),
       ...(bot.client ? { client: bot.client } : {}),
       ...(bot.openTo ? { openTo: [...new Set(bot.openTo)] } : {}),

@@ -24,6 +24,7 @@ import { settleOutboxOwner } from "./lib/app-outbox";
 import { BrowserSignInPage } from "./pair/BrowserSignInPage";
 import { PairPage } from "./pair/PairPage";
 import { NordusLoginPage, takeLoginRefusalFromLocation } from "./pair/NordusLoginPage";
+import { PageBoundary } from "./components/PageBoundary";
 import "./styles.css";
 
 // Before first paint; settleAdvancedModeDefault must run before applyThemeMode writes nordus-skin.
@@ -77,5 +78,5 @@ async function loadSavedLocale(): Promise<void> {
 }
 
 void Promise.all([bootstrapBrand(), loadSavedLocale(), chooseRoot()]).then(([, , root]) => {
-  createRoot(document.getElementById("root")!).render(<StrictMode>{root}</StrictMode>);
+  createRoot(document.getElementById("root")!).render(<StrictMode><PageBoundary>{root}</PageBoundary></StrictMode>);
 });

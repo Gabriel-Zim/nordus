@@ -84,3 +84,29 @@ describe("matchesReadyBot", () => {
     expect(matchesReadyBot(echo, "spreadsheet")).toBe(false);
   });
 });
+
+describe("ready bots in the person's language", () => {
+  it("names, describes and suggests jobs in Portuguese, keeping the SOUL as written", async () => {
+    const { setLocale } = await import("@/lib/i18n");
+    const { localizedReadyBot, readyBot } = await import("./ready-bots");
+    setLocale("pt-br");
+    try {
+      const assistant = localizedReadyBot(readyBot("assistant")!);
+      expect(assistant).toMatchObject({ name: "Assistente", title: "Assistente geral" });
+      expect(assistant.tryAsking[0]).toBe("Planeje minha semana a partir desta lista de tarefas");
+      expect(assistant.soul).toBe(readyBot("assistant")!.soul);
+    } finally {
+      setLocale("en");
+    }
+  });
+
+  it("has a Portuguese name, title, description and three first jobs for every ready bot", async () => {
+    const { READY_BOTS } = await import("./ready-bots");
+    const pt = (await import("../locales/pt-br.json")).default as Record<string, string>;
+    for (const bot of READY_BOTS) {
+      for (const field of ["name", "title", "description", "try1", "try2", "try3"]) {
+        expect(pt[`readyBots.${bot.id}.${field}`], `${bot.id}.${field}`).toBeTruthy();
+      }
+    }
+  });
+});

@@ -24,6 +24,7 @@ import { scrubbedSkillRequest } from "./skill-request-card.ts";
 import { AVATAR_FOCUS_CENTER, AVATAR_ZOOM_MIN, botAvatarProfile, clampAvatarFocus, clampAvatarZoom } from "../shared/bot-avatar.ts";
 import { approvalModeFor, isApprovalMode, modelSwitchNeedsAsk, threadApproval, type ApprovalMode } from "../shared/approval-mode.ts";
 import { lastChangeRequestUrl } from "../shared/thread-link.ts";
+import { validFreshSessionIdleMinutes } from "../shared/fresh-session.ts";
 import { REMOVED_COMPUTER_DRIVER, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import type { ProfileRequestChanges } from "../shared/profile-request.ts";
 import type { TeamSetupRequest, TeamSetupResult } from "../shared/team-setup.ts";
@@ -84,7 +85,7 @@ export interface TaskRecord extends Omit<WireTask, TaskWireDerivedKeys> {
   awaitingPerson?: true;
   /** The approval level was handed by a teammate's delegation, not chosen by the person. */
   levelDelegated?: true;
-  /** A task opened from the desk (balcão) of a taskSessions bot: where it came from and where its work stands. */
+  /** A task the desk (balcão) opened: where it came from and where its work stands. */
   desk?: { origin: string; title: string; state: "queued" | "running" | "paused" | "done" | "failed" };
 }
 
@@ -558,6 +559,10 @@ export class Store {
       }
       if (b.nativeMode !== undefined && typeof b.nativeMode !== "boolean") {
         delete b.nativeMode;
+        botsMigrated = true;
+      }
+      if (b.freshSessionIdleMinutes !== undefined && !validFreshSessionIdleMinutes(b.freshSessionIdleMinutes)) {
+        delete b.freshSessionIdleMinutes;
         botsMigrated = true;
       }
       if (b.teamLead !== undefined) {

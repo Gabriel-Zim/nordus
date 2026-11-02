@@ -2671,7 +2671,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (olderPageRequests.has(action.threadId)) break;
           const current = stateRef.current;
           const owner = [...current.bots, ...current.groups].find((candidate) => candidate.threadId === action.threadId);
-          const before = owner?.messages[0]?.id;
+          // An unconfirmed row has no server id yet; paging from it answers "no such message".
+          const before = owner?.messages.find((message) => !message.id.startsWith(optimisticMessageId("")))?.id;
           const generation = current.transcriptGeneration[action.threadId] ?? 0;
           if (!before) {
             rawDispatch({ type: "olderMessages", threadId: action.threadId, generation, messages: [], hasMore: false });

@@ -104,10 +104,6 @@ export function botPatch(desired: DesiredBot, echo: Rec, team: string | undefine
     patch.modelFixed = desired.modelFixed;
     changes.push(`modelFixed ${desired.modelFixed ? "off → on" : "on → off"}`);
   }
-  if (desired.taskSessions !== undefined && (echo.taskSessions === true) !== desired.taskSessions) {
-    patch.taskSessions = desired.taskSessions;
-    changes.push(`taskSessions ${desired.taskSessions ? "off → on" : "on → off"}`);
-  }
   // The server counts an unmarked bot as a client's.
   if (desired.audience !== undefined && (echo.audience ?? "client") !== desired.audience) {
     patch.audience = desired.audience;
@@ -503,7 +499,6 @@ export async function teamExportVerb(ctx: VerbContext): Promise<VerbOutcome> {
     if (bot.browser === false || bot.browserProfile) entry.browser = { enabled: bot.browser !== false, ...(bot.browserProfile ? { profile: bot.browserProfile } : {}) };
     if (!everyTool(bot.toolScope)) entry.tools = bot.toolScope;
     if (bot.modelFixed === true) entry.modelFixed = true;
-    if (bot.taskSessions === true) entry.taskSessions = true;
     if (bot.audience) entry.audience = bot.audience;
     if (bot.client) entry.client = bot.client;
     if (Array.isArray(bot.mcpServers)) entry.mcpServers = bot.mcpServers;

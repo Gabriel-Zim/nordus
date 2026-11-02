@@ -614,6 +614,41 @@ describe("transcript viewport", () => {
     expect(scroller.scrollTop).toBe(500 + 50 * ROW);
   });
 
+  it("holds a scrolled-up reader still while the loading placeholder comes and goes above them", () => {
+    const SKELETON = 170;
+    const view = mount({ messages: rows(50, 200), hasMore: true });
+    view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
+    scroller.scrollTop = 500;
+
+    scroller.extra = SKELETON;
+    store.state.loadingOlder = { thread: true };
+    view.rerender({});
+    resize();
+    expect(scroller.scrollTop).toBe(500 + SKELETON);
+
+    scroller.extra = 0;
+    store.state.loadingOlder = {};
+    view.rerender({ messages: [...rows(50, 150), ...rows(50, 200)] });
+    resize();
+    expect(scroller.scrollTop).toBe(500 + 50 * ROW);
+  });
+
+  it("keeps the reader's rows when the placeholder showed while following and the reader left before the page landed", () => {
+    const SKELETON = 170;
+    const view = mount({ messages: rows(50, 200), hasMore: true });
+    scroller.extra = SKELETON;
+    store.state.loadingOlder = { thread: true };
+    view.rerender({});
+
+    view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
+    scroller.scrollTop = 500;
+    scroller.extra = 0;
+    store.state.loadingOlder = {};
+    view.rerender({ messages: [...rows(50, 150), ...rows(50, 200)] });
+
+    expect(scroller.scrollTop).toBe(500 - SKELETON + 50 * ROW);
+  });
+
   it("stops paging a thread once the view has switched away", () => {
     const view = mount({ messages: rows(50, 200), hasMore: true });
     expect(dispatched).toEqual([{ type: "loadOlderMessages", threadId: "thread" }]);

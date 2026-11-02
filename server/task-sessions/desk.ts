@@ -1,4 +1,3 @@
-import { promptWithDataContext } from "../../shared/data-context.ts";
 import type { SteerQueueReason } from "../../shared/wire.ts";
 import type { RuntimeEvent } from "../../shared/runtime-events.ts";
 import type { Decider } from "../decider/index.ts";
@@ -10,13 +9,11 @@ import { redactSecretsInText } from "../redact.ts";
 import type { BotRecord, Message, Store } from "../store.ts";
 import { classifyTurnError } from "../../shared/turn-error.ts";
 import { extractTurnImages } from "../turn-images.ts";
-import type { queueSteeredMessage } from "../steer-queue.ts";
 import type { UsageTrigger } from "../usage-ledger.ts";
 import { taskHome } from "../leader-task-home.ts";
 import { diskHasRoom as defaultDiskHasRoom } from "./capacity.ts";
 import { createPlanLimit, PLAN_LIMIT_RESUME_TEXT } from "./plan-limit.ts";
-import { routeDeskMessage } from "./route.ts";
-import { cleanupTaskTmp, taskShortId } from "./workspace.ts";
+import { cleanupTaskTmp } from "./workspace.ts";
 
 type Sender = Message["sender"];
 
@@ -24,36 +21,17 @@ export type DirectSendReceipt =
   | { ok: true; threadId: string; message: Message; steered?: true }
   | { ok: true; queued: true; queueId: string; threadId: string; reason?: SteerQueueReason };
 
-export type DeskInput = {
-  botId: string;
-  threadId: string;
-  text: string;
-  sendId?: string;
-  replyTo?: Message;
-  sender?: Sender;
-  trigger: UsageTrigger;
-  dataContext?: DataContext;
-  via?: "call";
-  callId?: string;
-  personPresent: boolean;
-};
-
 export interface DeskDeps {
   store: Store;
   startTurn: (botId: string, text: string, opts: { threadId: string; sender?: Sender; trigger?: UsageTrigger; dataContext?: DataContext; onTurnSettled?: () => void }) => Promise<unknown>;
   threadBusy: (botId: string, threadId: string) => boolean;
   awaitingTeammates: (threadId: string) => boolean;
   botAtThreadCapacity: (botId: string) => boolean;
-  serverAtSessionCapacity: () => boolean;
-  queueSteeredMessage: typeof queueSteeredMessage;
-  queuedThreadPosition: (botId: string, threadId: string) => number | null;
   /** Whether the task still has a message waiting in the persisted queue. */
   hasQueuedSteeredMessages: (botId: string, threadId: string) => boolean;
   decider: Decider;
   cfg: Parameters<typeof deciderReady>[0];
   DATA_DIR: string;
-  /** The ordinary send path, entered again for a task so a continued message steers or resumes it. */
-  continueTask: (input: DeskInput) => Promise<DirectSendReceipt>;
   /** Room on disk for another task; defaults to the real check. */
   diskHasRoom?: (path: string) => boolean;
   /** Clock and timer for the plan-limit pause; default to the real ones. */
@@ -73,8 +51,8 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
 
 type DeskState = NonNullable<NonNullable<ReturnType<Store["taskByThread"]>>["desk"]>["state"];
 
-/** The desk (balcão): every new message of a taskSessions bot opens its own task; results come back here.
- *  Bots with the mode off keep the earlier parallel line, which lives here too. */
+/** The desk (balcão): tasks it opened earlier still bring their results back to the conversation they came from; it opens no new ones.
+ *  The parallel line lives here too. */
 export function createDesk(deps: DeskDeps) {
   const { store, DATA_DIR } = deps;
   const diskHasRoom = deps.diskHasRoom ?? defaultDiskHasRoom;
@@ -160,50 +138,6 @@ export function createDesk(deps: DeskDeps) {
     if (desk && desk.state !== state) store.patchTask(botId, threadId, { desk: { ...desk, state } });
   };
 
-  async function openTask(bot: BotRecord, input: DeskInput): Promise<DirectSendReceipt> {
-    const { threadId: origin, text, replyTo, sendId, sender, trigger, dataContext } = input;
-    const title = laneTitle(extractTurnImages(text).text);
-    const task = store.createTask(bot.id, title, false);
-    if (!task) throw Object.assign(new Error("no such bot"), { status: 404 });
-    const taskThreadId = task.threadId;
-    const threadRef = { botId: bot.id, threadId: taskThreadId, title };
-    store.patchTask(bot.id, taskThreadId, { desk: { origin, title, state: "queued" } });
-    const message = store.appendMessage(origin, {
-      role: "user", kind: "text", text, replyToId: replyTo?.id, sendId, threadRef,
-      ...(dataContext ? { dataContext } : {}), sender,
-    });
-    const say = (line: string) => store.appendMessage(origin, { role: "bot", kind: "text", text: line, from: speaker(bot), threadRef });
-    if (replyTo?.threadRef) {
-      store.appendMessage(origin, { role: "bot", kind: "text", from: speaker(bot), text: `A tarefa "${replyTo.threadRef.title || "anterior"}" não existe mais. Abri uma nova.` });
-    }
-    say(`Comecei: ${title}`);
-    const shortId = taskShortId(taskThreadId);
-    const prompt = `${text}\n\n(Tarefa ${shortId}: inclua "${shortId}" no nome da pasta do pedido.)`;
-    const receipt = { ok: true as const, threadId: origin, message };
-    const wait = (why: "slot" | "disk" | "pause") => {
-      const queued = deps.queueSteeredMessage(bot.id, taskThreadId, text, {
-        reason: "capacity", prompt: promptWithDataContext(prompt, dataContext), dataContext, sender, trigger,
-      });
-      setState(bot.id, taskThreadId, "queued");
-      say(why === "disk" ? `Aguardando espaço em disco: ${title}` : why === "pause" ? planLimit.pauseLine(title)! : `Aguardando vaga: ${title} (posição ${deps.queuedThreadPosition(bot.id, taskThreadId) ?? 1})`);
-      return queued;
-    };
-    if (!roomFor(bot, true)) { wait("disk"); return receipt; }
-    if (planLimit.blocked()) { wait("pause"); return receipt; }
-    if (deps.botAtThreadCapacity(bot.id) || deps.serverAtSessionCapacity()) { wait("slot"); return receipt; }
-    setState(bot.id, taskThreadId, "running");
-    try {
-      await deps.startTurn(bot.id, prompt, { threadId: taskThreadId, sender, trigger, ...(dataContext ? { dataContext } : {}) });
-    } catch (error) {
-      const code = (error as { code?: string }).code;
-      if (code === "thread_busy" || code === "thread_limit") { wait("slot"); return receipt; }
-      setState(bot.id, taskThreadId, "failed");
-      cleanupTaskTmp(DATA_DIR, bot.id, taskThreadId);
-      say(failureLine(title, "não consegui começar"));
-    }
-    return receipt;
-  }
-
   /** Paused tasks come back by themselves at the reset, with one notice per desk. */
   const planLimit = createPlanLimit({
     now: clock,
@@ -269,49 +203,6 @@ export function createDesk(deps: DeskDeps) {
     }
   }
 
-  /** A reply from the desk to a task stopped on a card: the desk never answers it (who may answer is decided in the task's
-   *  conversation) and never steers into the blocked turn. The reply is kept and the card stays open. */
-  function pointToCard(bot: BotRecord, taskThreadId: string, input: DeskInput, title: string): DirectSendReceipt {
-    const threadRef = { botId: bot.id, threadId: taskThreadId, title };
-    const message = store.appendMessage(input.threadId, {
-      role: "user", kind: "text", text: input.text, replyToId: input.replyTo?.id, sendId: input.sendId, threadRef,
-      ...(input.dataContext ? { dataContext: input.dataContext } : {}), sender: input.sender,
-    });
-    store.appendMessage(input.threadId, { role: "bot", kind: "text", from: speaker(bot), threadRef, text: `Essa pergunta precisa ser respondida na conversa da tarefa "${title}".` });
-    return { ok: true as const, threadId: input.threadId, message };
-  }
-
-  async function continueTask(bot: BotRecord, taskThreadId: string, input: DeskInput): Promise<DirectSendReceipt> {
-    const task = store.taskByThread(bot.id, taskThreadId);
-    if (taskThreadId !== input.threadId && task?.activity === "waiting-on-you") {
-      const card = store.messagesFor(taskThreadId).findLast((m) => m.card?.requestId && !m.card.answered && !m.card.dismissed && !m.card.expired);
-      if (card) return pointToCard(bot, taskThreadId, input, task.desk?.title ?? task.title ?? "");
-    }
-    // The ordinary path starts or steers the turn; the task turns "running" when that turn really starts.
-    const receipt = await deps.continueTask({ ...input, threadId: taskThreadId, replyTo: undefined, sendId: undefined });
-    if (taskThreadId === input.threadId) return receipt;
-    const threadRef = { botId: bot.id, threadId: taskThreadId, title: task?.desk?.title ?? task?.title ?? "" };
-    const message = store.appendMessage(input.threadId, {
-      role: "user", kind: "text", text: input.text, replyToId: input.replyTo?.id, sendId: input.sendId, threadRef,
-      ...(input.dataContext ? { dataContext: input.dataContext } : {}), sender: input.sender,
-    });
-    if ("queued" in receipt) return receipt;
-    return { ok: true as const, threadId: input.threadId, message, ...(receipt.steered ? { steered: true as const } : {}) };
-  }
-
-  async function handle(bot: BotRecord, input: DeskInput): Promise<DirectSendReceipt> {
-    const route = routeDeskMessage({
-      thread: store.taskByThread(bot.id, input.threadId) ?? null,
-      threadId: input.threadId,
-      replyTo: input.replyTo,
-      taskExists: (id) => {
-        const task = store.taskByThread(bot.id, id);
-        return Boolean(task?.desk && !task.archivedAt && input.replyTo?.threadRef?.botId === bot.id);
-      },
-    });
-    return route.action === "continue" ? continueTask(bot, route.taskThreadId, input) : openTask(bot, input);
-  }
-
   /** The answer goes home only when the work is really done: no turn running and nothing out with teammates, so a
    *  hand-off to the Revisor brings back the final text, not the "I sent it for review" line. */
   function settled(threadId: string, ok?: boolean): void {
@@ -350,10 +241,6 @@ export function createDesk(deps: DeskDeps) {
     store.appendMessage(lane.originThreadId, { role: "bot", kind: "text", text: laneResult(lane.title, answer), from: speaker(bot) });
   }
 
-  /** The desk takes a message when the bot has the mode on, it is not a call, it was not written inside a task, and nobody relayed it (a board card goes straight to the bot's own conversation). */
-  const owns = (bot: { id: string; taskSessions?: boolean }, input: { threadId: string; via?: string; relayed?: boolean }) =>
-    bot.taskSessions === true && !input.via && !input.relayed && !store.taskByThread(bot.id, input.threadId)?.desk;
-
   /** A turn of a desk task really starts: it is running now, whatever it was (queued, delivered, failed). */
   const turnStarted = (botId: string, threadId: string) => setState(botId, threadId, "running");
 
@@ -389,7 +276,7 @@ export function createDesk(deps: DeskDeps) {
   /** A thread the bot opened on itself (start_thread): its answer comes back to the conversation it was opened from. */
   const addLane = (threadId: string, lane: { botId: string; originThreadId: string; title: string }) => { lanes.set(threadId, lane); };
 
-  return { handle, restore, settled, addLane, owns, turnStarted, startFailed, questionAsked, chooseLane, openLane, watches, observe, planLimitHit, planLimitBlocked: planLimit.blocked, holds: (threadId: string) => diskHolds(threadId) || planLimitHolds(threadId), planLimitHolds };
+  return { restore, settled, addLane, turnStarted, startFailed, questionAsked, chooseLane, openLane, watches, observe, planLimitHit, planLimitBlocked: planLimit.blocked, holds: (threadId: string) => diskHolds(threadId) || planLimitHolds(threadId), planLimitHolds };
 }
 
 export type Desk = ReturnType<typeof createDesk>;

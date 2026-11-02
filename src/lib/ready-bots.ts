@@ -1,6 +1,8 @@
 import type { BotRoutineTemplate, NewBotDefaults } from "../../shared/new-bot-defaults";
 import type { MascotBodyId } from "../../shared/mascot-bodies";
 import type { CritterColor } from "../../shared/wire";
+import type { LocaleKey } from "@/locales";
+import { t } from "./i18n";
 
 export type ReadyBotCategory = "everyday" | "work" | "writing" | "design" | "sales" | "personal";
 
@@ -91,7 +93,7 @@ export const READY_BOTS: ReadyBot[] = [
       "Explain what changed and why in a few lines. Never push, publish, or delete branches unless told to.",
     ].join("\n"),
     look: { color: "cyan", mascotBody: "hexagon" },
-    tryAsking: ["Find why the tests fail and fix it", "Explain how this repository is organised", "Add input validation to the signup form"],
+    tryAsking: ["Find why the tests fail and fix it", "Explain how this repository is organized", "Add input validation to the signup form"],
     apps: ["github"],
   },
   {
@@ -326,4 +328,32 @@ export function matchesReadyBot(bot: ReadyBot, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
   return [bot.name, bot.title, bot.description, bot.category].some((field) => field.toLowerCase().includes(needle));
+}
+
+function readyBotWord(bot: ReadyBot, field: string, english: string): string {
+  const key = `readyBots.${bot.id}.${field}` as LocaleKey;
+  const word = t(key);
+  return word === key ? english : word;
+}
+
+/** The SOUL stays as written: it is the bot's own instructions, not words on screen. */
+export function localizedReadyBot(bot: ReadyBot): ReadyBot {
+  return {
+    ...bot,
+    name: readyBotWord(bot, "name", bot.name),
+    title: readyBotWord(bot, "title", bot.title),
+    description: readyBotWord(bot, "description", bot.description),
+    tryAsking: bot.tryAsking.map((prompt, index) => readyBotWord(bot, `try${index + 1}`, prompt)),
+  };
+}
+
+export function localizedReadyBots(): ReadyBot[] {
+  return READY_BOTS.map(localizedReadyBot);
+}
+
+/** A bot added from the gallery keeps its ready bot's SOUL until someone edits it; then its own duties speak for it. */
+export function readyBotTryAsking(soul: string | undefined): string[] {
+  const own = soul?.trim();
+  const match = own ? READY_BOTS.find((bot) => bot.soul.trim() === own) : undefined;
+  return match ? localizedReadyBot(match).tryAsking : [];
 }

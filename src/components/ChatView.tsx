@@ -7,6 +7,8 @@ import { useShowThreads } from "@/lib/thread-preferences";
 import {
   AlertTriangle,
   CalendarClock,
+  Check,
+  Pause,
   ChevronLeft,
   ChevronRight,
   Monitor,
@@ -51,7 +53,7 @@ import { ClaudeUpdatePrompt } from "./ClaudeUpdatePrompt";
 import { MacCuaRecoveryActions } from "./MacCuaRecoveryActions";
 import { macCuaPermissionMessage, missingMacCuaPermissions } from "@/lib/mac-cua-permissions";
 import { failedTurnCause, refusalLine, signedOutEngine } from "@/lib/failed-turn";
-import { RECOVERY_LABEL, doneStepsBefore, errorRecovery, resumeSendId, type RecoveryAction } from "@/lib/error-recovery";
+import { RECOVERY_LABEL, doneStepsBefore, errorRecovery, mayAutoResume, resumeSendId, type RecoveryAction } from "@/lib/error-recovery";
 import { classifyTurnError } from "../../shared/turn-error";
 import { isModelUnavailableError } from "@/lib/plain-error";
 import { openPlaceAction, placeRowViewFor, usePlaceSeat, worksOnSimpleLabel } from "@/lib/place-view";
@@ -263,9 +265,18 @@ export function ErrorRow({
   claudeUpdateInstance,
   actions,
   footer,
+  why,
+  hint,
+  paused = false,
 }: {
   message: string;
   headline?: string;
+  /** why it stopped, in plain words, under the headline */
+  why?: string;
+  /** what the way out will do */
+  hint?: string;
+  /** the work stopped and can go on, rather than failed */
+  paused?: boolean;
   onRetry?: () => void;
   action?: { label: string; onClick: () => void } | null;
   /** the ways out of this failure, first one the most likely */
@@ -285,65 +296,60 @@ export function ErrorRow({
     : null;
   const headline = macCuaReason ?? plainHeadline ?? humanErrorHeadline(message);
   const usageUrl = action ? null : message.includes("subscription_sharing_usage_limit_exceeded") ? CHATGPT_USAGE_URL : codexUsageLimitReached(message) ? CODEX_USAGE_URL : null;
+  const button = (primary: boolean) => cn(
+    "ui-button ui-button-md rounded-full",
+    primary ? "border-transparent bg-ink text-app hover:brightness-110" : "border-hairline/50 bg-transparent text-ink hover:bg-ink/5",
+  );
   return (
     <div className="flex justify-start">
-      <div className="w-fit max-w-[min(var(--chat-bubble-max),var(--chat-bubble-pct))] rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-[13.5px] text-danger">
-        <div className="flex items-start gap-2">
-          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 break-words">{headline}</span>
-        </div>
-        {headline !== message && <details className="mt-2 text-[12px] text-ink-secondary"><summary className="cursor-pointer">{macCuaReason ? t("computer.mac.permission.driverDetail") : t("chat.error.details")}</summary><p className="mt-1 break-words">{message}</p></details>}
-        {macCuaReason &&
-          <MacCuaRecoveryActions reason={message} />}
-        {usageUrl ? (
-          <ManageUsageLink href={usageUrl} className="ui-button ui-button-md mt-2 border-transparent bg-ink text-app hover:brightness-110" />
-        ) : claudeUpdateInstance ? (
-          <ClaudeUpdatePrompt instance={claudeUpdateInstance} onRetry={onRetry} />
-        ) : isProviderSafetyBlock(message) ? (
-          <p className="mt-2 text-[12.5px] leading-relaxed text-ink-secondary">
-            {PROVIDER_SAFETY_GUIDANCE}{" "}
-            <a href={PROVIDER_SAFETY_HELP_URL} target="_blank" rel="noreferrer" className="underline">About provider safety checks</a>
-          </p>
-        ) : setupInstance &&
-        !(setupInstance.snapshot.state === "available" && setupInstance.snapshot.authenticated !== false) ? (
-          <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
-        ) : actions?.length ? (
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {actions.map(({ label, onClick, retry }, index) => (
-              <button
-                key={label}
-                type="button"
-                onClick={onClick}
-                className={cn(
-                  "ui-button ui-button-md rounded-full border-danger/30 text-danger hover:bg-danger/15",
-                  index === 0 ? "bg-danger/10" : "bg-transparent",
-                )}
-              >
-                {retry && <RefreshCw size={12} />} {label}
-              </button>
-            ))}
+      <div data-turn-error="" className="w-full max-w-[min(var(--chat-bubble-max),var(--chat-bubble-pct))] rounded-2xl border border-hairline/40 bg-card px-4 py-3 text-[13.5px] text-ink">
+        <div className="flex items-start gap-2.5">
+          <span className={cn("mt-px grid size-6 shrink-0 place-items-center rounded-full", paused ? "bg-warning/15 text-warning" : "bg-danger/10 text-danger")}>
+            {paused ? <Pause size={12} /> : <AlertTriangle size={12} />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium leading-snug"><span className="min-w-0 break-words">{headline}</span></p>
+            {why && <p className="mt-0.5 break-words text-[13px] leading-relaxed text-ink-secondary">{why}</p>}
+            {hint && <p className="mt-1 text-[12.5px] leading-relaxed text-ink-tertiary">{hint}</p>}
+            {macCuaReason &&
+              <MacCuaRecoveryActions reason={message} />}
+            {usageUrl ? (
+              <ManageUsageLink href={usageUrl} className="ui-button ui-button-md mt-2 border-transparent bg-ink text-app hover:brightness-110" />
+            ) : claudeUpdateInstance ? (
+              <ClaudeUpdatePrompt instance={claudeUpdateInstance} onRetry={onRetry} />
+            ) : isProviderSafetyBlock(message) ? (
+              <p className="mt-2 text-[12.5px] leading-relaxed text-ink-secondary">
+                {PROVIDER_SAFETY_GUIDANCE}{" "}
+                <a href={PROVIDER_SAFETY_HELP_URL} target="_blank" rel="noreferrer" className="underline">About provider safety checks</a>
+              </p>
+            ) : setupInstance &&
+            !(setupInstance.snapshot.state === "available" && setupInstance.snapshot.authenticated !== false) ? (
+              <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
+            ) : actions?.length ? (
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {actions.map(({ label, onClick, retry }, index) => (
+                  <button key={label} type="button" onClick={onClick} className={button(index === 0)}>
+                    {retry && <RefreshCw size={12} />} {label}
+                  </button>
+                ))}
+              </div>
+            ) : action !== undefined ? (
+              action && (
+                <button type="button" onClick={action.onClick} className={cn(button(true), "mt-2.5")}>
+                  {action.label}
+                </button>
+              )
+            ) : (
+              onRetry && (
+                <button onClick={onRetry} className={cn(button(true), "mt-2.5")}>
+                  <RefreshCw size={12} /> {t("chat.retry")}
+                </button>
+              )
+            )}
+            {footer}
+            {headline !== message && <details className="mt-2.5 text-[12px] text-ink-tertiary"><summary className="cursor-pointer select-none hover:text-ink-secondary">{macCuaReason ? t("computer.mac.permission.driverDetail") : t("chat.error.details")}</summary><p className="mt-1 break-words font-mono text-[11.5px]">{message}</p></details>}
           </div>
-        ) : action !== undefined ? (
-          action && (
-            <button
-              type="button"
-              onClick={action.onClick}
-              className="ui-button ui-button-md mt-1.5 rounded-full border-danger/30 bg-transparent text-danger hover:bg-danger/15"
-            >
-              {action.label}
-            </button>
-          )
-        ) : (
-          onRetry && (
-            <button
-              onClick={onRetry}
-              className="ui-button ui-button-md mt-1.5 rounded-full border-danger/30 bg-transparent text-danger hover:bg-danger/15"
-            >
-              <RefreshCw size={12} /> {t("chat.retry")}
-            </button>
-          )
-        )}
-        {footer}
+        </div>
       </div>
     </div>
   );
@@ -379,7 +385,7 @@ export function claudeUpdateTarget(engine: InstanceInfo | undefined): InstanceIn
   return engine?.driverKind === "claudeAgent" && !engine.readOnly ? engine : undefined;
 }
 
-export function FailedTurnRow({ tool, engine, onRetry, botId, threadId, messageId, doneSteps = [] }: {
+export function FailedTurnRow({ tool, engine, onRetry, botId, threadId, messageId, doneSteps = [], autoResume = false }: {
   tool: NonNullable<Message["tool"]>;
   engine: InstanceInfo | undefined;
   onRetry?: () => void;
@@ -389,6 +395,8 @@ export function FailedTurnRow({ tool, engine, onRetry, botId, threadId, messageI
   messageId?: string;
   /** the steps this failed turn started, for "See what was done" */
   doneSteps?: string[];
+  /** fresh enough, and not itself a failed resume, to resume on its own after a passing failure */
+  autoResume?: boolean;
 }) {
   if (tool.place && botId) return <PlaceFailedRow place={tool.place} botId={botId} threadId={threadId} onRetry={onRetry} />;
   const credit = trialCreditKind(failedTurnCause(tool.name) ?? "");
@@ -420,6 +428,7 @@ export function FailedTurnRow({ tool, engine, onRetry, botId, threadId, messageI
       messageId={messageId}
       doneSteps={doneSteps}
       signedOut={Boolean(signedOut)}
+      autoResume={autoResume}
     />
   );
 }
@@ -433,7 +442,7 @@ function signedInAgain(engine: InstanceInfo | undefined): boolean {
 const SIGNED_OUT_CAUSE = /not logged in|please run \/login|\/login\b|sign in again|logged out|invalid api key|authentication required/i;
 
 /** A failed turn's sentence and its ways out. Resume, like Retry, is offered only on the latest failure. */
-function RecoveringErrorRow({ cause, tool, engine, onRetry, botId, threadId, messageId, doneSteps, signedOut }: {
+function RecoveringErrorRow({ cause, tool, engine, onRetry, botId, threadId, messageId, doneSteps, signedOut, autoResume }: {
   cause: string;
   messageId?: string;
   tool: NonNullable<Message["tool"]>;
@@ -444,6 +453,7 @@ function RecoveringErrorRow({ cause, tool, engine, onRetry, botId, threadId, mes
   doneSteps: string[];
   /** the engine itself reports no sign-in, whatever the cause says */
   signedOut: boolean;
+  autoResume: boolean;
 }) {
   const { dispatch } = useStore();
   const resume = useLimitResetContinue(botId, threadId, tool.limitResetsAt);
@@ -455,6 +465,7 @@ function RecoveringErrorRow({ cause, tool, engine, onRetry, botId, threadId, mes
   // A row from before the server counted the turn's work: the steps the conversation shows are the only count.
   const recovery = errorRecovery(cause, !tool.error && doneSteps.length ? { ...(told ?? kind), done: doneSteps.length } : told);
   const openSettings = (section: "engines" | "backups" | "accountMoves") => () => dispatch({ type: "toggleAppSettings", open: true, section });
+  const sendResume = onRetry && botId ? () => dispatch({ type: "send", botId, threadId, text: t("chat.recovery.resumeText"), ...(messageId ? { sendId: resumeSendId(messageId) } : {}) }) : undefined;
   const handlers: Record<RecoveryAction, (() => void) | undefined> = {
     retry: onRetry,
     "sign-in": openSettings("engines"),
@@ -462,7 +473,7 @@ function RecoveringErrorRow({ cause, tool, engine, onRetry, botId, threadId, mes
     "switch-account": openSettings("accountMoves"),
     "see-backups": openSettings("backups"),
     "see-done": () => setShowDone((shown) => !shown),
-    resume: onRetry && botId ? () => dispatch({ type: "send", botId, threadId, text: t("chat.recovery.resumeText"), ...(messageId ? { sendId: resumeSendId(messageId) } : {}) }) : undefined,
+    resume: sendResume,
   };
   const recoveryActions = recovery.actions.flatMap((action) => {
     const onClick = handlers[action];
@@ -472,20 +483,82 @@ function RecoveringErrorRow({ cause, tool, engine, onRetry, botId, threadId, mes
   });
   // The scheduled continue, when the limit has a reset time, leads the ways out.
   const actions = resume ? [{ label: resume.label, onClick: resume.onClick, retry: false }, ...recoveryActions] : recoveryActions;
+  const resumable = recovery.actions.includes("resume") && Boolean(sendResume);
+  // Resume carries a send id fixed by the failure row, so a second tab or a remount still sends it once.
+  const countdown = autoResume && recovery.passing && sendResume && messageId
+    ? <AutoResumeCountdown id={messageId} onResume={sendResume} />
+    : null;
   return (
     <ErrorRow
       message={cause}
-      headline={recovery.line}
+      headline={recovery.title ?? recovery.line}
+      why={recovery.title ? recovery.why ?? plainCause(cause) : undefined}
+      hint={resumable ? t("chat.recovery.resumeHint") : undefined}
+      paused={Boolean(recovery.title || recovery.passing)}
       onRetry={onRetry}
       setupInstance={tool.setup && !recovery.actions.includes("sign-in") ? engine : undefined}
       claudeUpdateInstance={tool.claudeUpdate ? claudeUpdateTarget(engine) : undefined}
       actions={actions}
-      footer={showDone && (
-        doneSteps.length
-          ? <ol className="mt-2 list-decimal space-y-0.5 pl-5 text-[12.5px] text-ink-secondary">{doneSteps.map((step, index) => <li key={index}>{step}</li>)}</ol>
-          : <p className="mt-2 text-[12.5px] text-ink-secondary">{t("chat.recovery.noSteps")}</p>
-      )}
+      footer={(countdown || showDone) && <>{countdown}{showDone && <DoneStepList steps={doneSteps} />}</>}
     />
+  );
+}
+
+/** The engine's own words when a person can read them, else that the reason is unknown. */
+function plainCause(cause: string): string {
+  const line = humanErrorHeadline(cause);
+  return line === t("chat.error.generic") ? t("chat.recovery.why.unknown") : line;
+}
+
+const AUTO_RESUME_SECONDS = 10;
+/** Failure rows whose automatic resume already ran or was declined, so a remount does not count down again. */
+const autoResumeSettled = new Set<string>();
+
+function AutoResumeCountdown({ id, onResume }: { id: string; onResume: () => void }) {
+  const [left, setLeft] = useState(AUTO_RESUME_SECONDS);
+  const [settled, setSettled] = useState(() => autoResumeSettled.has(id));
+  const resume = useRef(onResume);
+  resume.current = onResume;
+  useEffect(() => {
+    if (settled) return;
+    if (left <= 0) {
+      autoResumeSettled.add(id);
+      setSettled(true);
+      resume.current();
+      return;
+    }
+    const timer = window.setTimeout(() => setLeft((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [id, left, settled]);
+  if (settled) return null;
+  return (
+    <div role="status" data-auto-resume="" className="mt-2.5 flex items-center gap-2 text-[12.5px] text-ink-secondary">
+      <span className="relative h-1 w-16 overflow-hidden rounded-full bg-ink/10">
+        <span className="absolute inset-y-0 left-0 rounded-full bg-ink/50 transition-[width] duration-1000 ease-linear" style={{ width: `${((AUTO_RESUME_SECONDS - left) / AUTO_RESUME_SECONDS) * 100}%` }} />
+      </span>
+      <span>{t("chat.recovery.autoResume", { seconds: left })}</span>
+      <button
+        type="button"
+        className="underline underline-offset-2 hover:text-ink"
+        onClick={() => { autoResumeSettled.add(id); setSettled(true); }}
+      >
+        {t("chat.recovery.autoResumeCancel")}
+      </button>
+    </div>
+  );
+}
+
+function DoneStepList({ steps }: { steps: string[] }) {
+  if (!steps.length) return <p className="mt-2.5 text-[12.5px] text-ink-secondary">{t("chat.recovery.noSteps")}</p>;
+  return (
+    <ol className="mt-2.5 space-y-1 border-l border-hairline/50 pl-3 text-[12.5px] text-ink-secondary">
+      {steps.map((step, index) => (
+        <li key={index} className="flex items-start gap-1.5">
+          <Check size={12} className="mt-[3px] shrink-0 text-success" />
+          <span className="min-w-0 break-words">{step}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -1343,6 +1416,7 @@ const MessagesList = memo(function MessagesList({
                     onRetry={m.id === lookups.retryableId && canRetryLast ? onRegenerate : undefined}
                     messageId={m.id}
                     doneSteps={doneStepsBefore(transcript, transcript.indexOf(m), m.turnId)}
+                    autoResume={mayAutoResume(transcript, transcript.indexOf(m))}
                   />
                 );
               }

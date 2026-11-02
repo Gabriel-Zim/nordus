@@ -372,8 +372,6 @@ export interface WireBot {
   memoryEnabled?: boolean;
   /** Nordus: the bot always runs on its chosen model; the decision model never sizes it down. */
   modelFixed?: boolean;
-  /** Nordus: each new chat request to this bot runs in its own Claude Code session. Absent/false = today's behavior. */
-  taskSessions?: boolean;
   /** Nordus: who the bot works for. Only "internal" inherits this machine's Claude Code setup and the accounts connected for every bot; absent counts as a client's bot. */
   audience?: BotAudience;
   /** Nordus: the client a client's bot serves, as its brand folder is named in the skills (`marcas/<client>`). */
@@ -403,6 +401,9 @@ export interface WireBot {
   /** Nordus: an internal bot run like the person's own terminal Claude Code (the person's skills, background tasks, one
    * command up to an hour, a turn that may run for hours while its renders do). Off for every other bot. */
   nativeMode?: boolean;
+  /** Nordus: an internal bot whose conversation has been idle longer than this many minutes starts its next turn in a
+   * fresh provider session, with the earlier conversation handed over as text. Absent keeps resuming the same session. */
+  freshSessionIdleMinutes?: number;
   /** Pause for human approval before this bot talks to a peer. */
   approvePeerComms?: boolean;
   /** Bot ids this bot is allowed to contact. */

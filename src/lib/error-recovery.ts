@@ -10,7 +10,13 @@ export type RecoveryAction = "retry" | "sign-in" | "see-done" | "resume" | "open
 export interface ErrorRecovery {
   /** one plain sentence; undefined leaves the caller's own wording */
   line?: string;
+  /** the card's short title when the turn had already done work */
+  title?: string;
+  /** why it stopped, in plain words, under the title; undefined when the cause has no plain sentence */
+  why?: string;
   actions: RecoveryAction[];
+  /** a passing failure (connection, restart, stall): resuming once on its own is safe */
+  passing?: boolean;
 }
 
 export const RECOVERY_LABEL: Record<RecoveryAction, LocaleKey> = {
@@ -52,30 +58,67 @@ const FIX: Record<TurnErrorClass, RecoveryAction[]> = {
   interrupted: ["retry"],
 };
 
+const PASSING: ReadonlySet<TurnErrorClass> = new Set(["engine-unreachable", "engine-down", "interrupted"]);
+
+const RESTARTED = /(?:Nordus AI|Nordus) restarted/i;
+
+/** Why an interrupted turn stopped, from the server's own words. */
+function interruptedWhy(cause: string): string {
+  if (RESTARTED.test(cause)) return t("chat.recovery.restartedMidWork");
+  if (/ran out of memory/i.test(cause)) return t("chat.recovery.why.outOfMemory");
+  const stalled = /no activity for (\d+) minutes?/i.exec(cause)?.[1];
+  if (stalled) return t("chat.recovery.why.stalled", { minutes: stalled });
+  if (/settings changed|connection changed/i.test(cause)) return t("chat.recovery.why.settingsChanged");
+  return t("chat.recovery.interruptedMidWork");
+}
+
 /** A failed turn as one sentence and the ways out. The server's class wins;
  * a row written before it existed is classified from its words, and a cause
  * that fits no class keeps the plain sentence with Retry. When the turn had
  * already done work, the way out is to look first and resume, never to repeat. */
 export function errorRecovery(cause: string, error?: TurnError, now = Date.now()): ErrorRecovery {
   const kind: TurnError | undefined = error ?? classifyTurnError(cause, {}, now);
-  const restarted = kind?.class === "interrupted" && /Nordus AI restarted/i.test(cause);
+  const restarted = kind?.class === "interrupted" && RESTARTED.test(cause);
   const done = kind?.done ?? 0;
   if (done > 0) {
     const what = t(restarted ? "chat.recovery.restartedMidWork" : kind?.class ? MID_WORK[kind.class] : "chat.recovery.interruptedMidWork");
     const fixes = kind?.class ? FIX[kind.class].filter((action) => action !== "retry") : [];
+    const why = kind?.class === "interrupted" ? interruptedWhy(cause)
+      : kind?.class ? what
+      : plainErrorLine(cause);
+    const passing = Boolean(kind?.class && PASSING.has(kind.class));
+    // A passing failure is fixed by resuming; any other needs its fix first.
+    const actions: RecoveryAction[] = passing ? ["resume", ...fixes, "see-done"] : [...fixes, "resume", "see-done"];
     return {
       line: `${what} ${t(done === 1 ? "chat.recovery.doneOne" : "chat.recovery.doneMany", { count: done })}`,
-      actions: ["see-done", ...fixes, "resume"],
+      title: t(done === 1 ? "chat.recovery.stoppedAfterOne" : "chat.recovery.stoppedAfterMany", { count: done }),
+      ...(why ? { why } : {}),
+      actions,
+      ...(passing ? { passing: true } : {}),
     };
   }
   if (!kind?.class) return { line: plainErrorLine(cause), actions: ["retry"] };
   // A row written before the server counted the turn's work cannot say nothing was done.
   if (kind.class === "interrupted" && !error) return { line: plainErrorLine(cause) ?? t("chat.recovery.interruptedMidWork"), actions: ["retry"] };
-  if (kind.class === "interrupted") return { line: t(restarted ? "chat.recovery.restartedBeforeWork" : "chat.recovery.interrupted"), actions: ["retry"] };
+  if (kind.class === "interrupted") return { line: t(restarted ? "chat.recovery.restartedBeforeWork" : "chat.recovery.interrupted"), actions: ["retry"], passing: true };
   if (kind.class === "usage-limit" && kind.retryAt && kind.retryAt > now) {
     return { line: t("chat.recovery.usageLimitUntil", { when: whenItResets(kind.retryAt, now) }), actions: ["switch-account"] };
   }
-  return { line: t(LINE[kind.class]), actions: FIX[kind.class] };
+  return { line: t(LINE[kind.class]), actions: FIX[kind.class], ...(PASSING.has(kind.class) ? { passing: true } : {}) };
+}
+
+const AUTO_RESUME_WINDOW_MS = 3 * 60_000;
+
+/** A failure row fresh enough to resume on its own, and not the failure of a resume already sent:
+ * one automatic try per stop, never a loop, never on a conversation opened later. */
+export function mayAutoResume(transcript: readonly Message[], index: number, now = Date.now()): boolean {
+  const row = transcript[index];
+  if (!row || now - row.at > AUTO_RESUME_WINDOW_MS) return false;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const prior = transcript[i]!;
+    if (prior.role === "user" && prior.kind === "text") return prior.text !== t("chat.recovery.resumeText");
+  }
+  return true;
 }
 
 /** The send id of a failure row's Resume: the same for every tap, so the server takes it once. */

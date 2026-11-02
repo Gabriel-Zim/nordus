@@ -521,6 +521,19 @@ describe("RuntimeCoordinator: stops", () => {
     expect(w.coordinator.node(b.id)).toMatchObject({ status: "completed", result: "built anyway", reported: true });
     expect(w.host.reports.at(-1)).toMatchObject({ child: { id: b.id }, parent: { id: "gen-1", status: "cancelled" } });
   });
+
+  it("stopAwaitingDirect in the assignee's conversation ends a teammate's request parked there on the person", async () => {
+    const w = world((node) => node.botId === "builder" ? { ok: true, text: "Copy pronta.\nNEEDS INPUT: Aprova esta copy?" } : undefined);
+    const { node } = send(w, chief, "gen-1", undefined, builder, "Escreve a copy");
+    w.coordinator.tick(); await flush();
+    expect(w.coordinator.awaitingAnswer("builder-work")).toBe(true);
+    w.coordinator.stopAwaitingDirect("builder-work", "Stopped by you");
+    expect(w.coordinator.awaitingAnswer("builder-work")).toBe(false);
+    expect(w.coordinator.node(node.id)).toMatchObject({ status: "cancelled", result: "Stopped by you" });
+    expect(w.coordinator.answer("builder-work", "late answer")).toBe(false);
+    await flush();
+    expect(w.host.reports.at(-1)).toMatchObject({ child: { id: node.id } });
+  });
 });
 
 describe("RuntimeCoordinator: read models", () => {

@@ -3445,6 +3445,33 @@ describe("restoring the open conversation", () => {
       expect(pageSignals[1]?.aborted).toBe(false);
     });
 
+    it("pages older history from a confirmed row, never from an unsent one the server cannot know", async () => {
+      const { stream } = await boot();
+      stream.send(hello());
+      await settle();
+      const held = {
+        ...first,
+        messages: [
+          { id: "optimistic-s1", sendId: "s1", at: 6, role: "user", kind: "text", text: "pode" },
+          { id: "m7", at: 7, role: "bot", kind: "text", text: "ok" },
+        ] as never as Message[],
+        hasMore: true,
+      };
+      flushSync(() => dispatch({ type: "hydrate", bots: [held, second], groups: [room], computerControl: {} }));
+      await settle();
+
+      const pagePaths: string[] = [];
+      vi.stubGlobal("fetch", (path: string) => {
+        if (path.includes("/messages?")) pagePaths.push(path);
+        return Promise.resolve(new Response(path.includes("/messages?") ? JSON.stringify({ messages: [], hasMore: false }) : "{}"));
+      });
+      flushSync(() => dispatch({ type: "loadOlderMessages", threadId: "bot-1-thread" }));
+      await settle();
+
+      expect(pagePaths).toHaveLength(1);
+      expect(new URL(pagePaths[0], "http://fixture").searchParams.get("before")).toBe("m7");
+    });
+
     it("a pressed Steer that stays queued for its pictures says why, and a plain queued answer stays quiet", async () => {
       const { stream } = await boot();
       stream.send(hello());

@@ -54,15 +54,16 @@ describe("the approval pinned above the message box when the bot waits in anothe
     fixture.api.mockReset();
   });
 
-  it("shows who asks, the task, the sentence and the answers, read from that task's own thread", async () => {
+  it("shows who asks, the sentence and the answers, read from the waiting thread, with no task around it", async () => {
     fixture.api.mockResolvedValue({ messages: [approval()] });
     await show(designer([main, carousel]));
     expect(fixture.api).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/^\/api\/threads\/carousel\/messages\?limit=\d+$/));
     const text = container.textContent ?? "";
     expect(text).toContain("Designer asks for your approval");
-    expect(text).toContain("In task: Carrossel Built to Endure");
     expect(text).toContain("I want to publicar o carrossel.");
-    for (const label of ["Allow once", "Always allow", "Deny", "Open task"]) expect(button(label)).toBeDefined();
+    expect(text).not.toContain("Carrossel Built to Endure");
+    for (const label of ["Allow once", "Always allow", "Deny"]) expect(button(label)).toBeDefined();
+    expect(button("Open task")).toBeUndefined();
   });
 
   it("answers the request in the waiting thread, not the open one", async () => {
@@ -109,44 +110,22 @@ describe("the approval pinned above the message box when the bot waits in anothe
     expect(button("Always allow")).toBeUndefined();
   });
 
-  it("opens the waiting task", async () => {
-    fixture.api.mockResolvedValue({ messages: [approval()] });
-    await show(designer([main, carousel]));
-    button("Open task")!.click();
-    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "switchTask", botId: "designer", threadId: "carousel" });
-  });
-
-  it("ignores approvals already answered", async () => {
+  it("shows nothing when the approval was already answered", async () => {
     fixture.api.mockResolvedValue({ messages: [approval({ answered: "allow" })] });
     await show(designer([main, carousel]));
-    expect(container.textContent).toContain("Designer is waiting for your answer in this task.");
-    expect(button("Allow once")).toBeUndefined();
+    expect(container.innerHTML).toBe("");
   });
 
-  it("still gives a way in when the waiting thread holds no open request, as after a restart", async () => {
+  it("shows nothing when the waiting thread holds no open request, as after a restart", async () => {
     fixture.api.mockResolvedValue({ messages: [] });
     await show(designer([main, carousel]));
-    expect(container.textContent).toContain("Designer is waiting for your answer in this task.");
-    expect(button("Open task")).toBeDefined();
-    button("Open task")!.click();
-    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "switchTask", botId: "designer", threadId: "carousel" });
+    expect(container.innerHTML).toBe("");
   });
 
-  it("opens a thread another bot started, the same way the sidebar row does", async () => {
-    fixture.api.mockResolvedValue({ messages: [approval()] });
-    await show(designer([main, { ...carousel, openedBy: { botId: "designergrafico", name: "DESIGNERGRAFICO", at: 1 } }]));
-    button("Open task")!.click();
-    expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "switchTask", botId: "designer", threadId: "carousel" });
-  });
-
-  it("falls back to a plain line and the way in when the messages cannot be read", async () => {
+  it("shows nothing when the messages cannot be read", async () => {
     fixture.api.mockRejectedValue(new Error("offline"));
     await show(designer([main, carousel]));
-    const text = container.textContent ?? "";
-    expect(text).toContain("In task: Carrossel Built to Endure");
-    expect(text).toContain("Designer is waiting for your answer in this task.");
-    expect(button("Allow once")).toBeUndefined();
-    expect(button("Open task")).toBeDefined();
+    expect(container.innerHTML).toBe("");
   });
 
   it("shows nothing when the open thread is the one waiting, so the timeline card is not doubled", async () => {

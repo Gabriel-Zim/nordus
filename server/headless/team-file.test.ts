@@ -161,13 +161,6 @@ bots:
     expect(team.bots[2]).toMatchObject({ mcpServers: [] });
   });
 
-  it("aceita taskSessions por bot", () => {
-    const team = loadTeamFile(file("version: 1\nbots:\n  - { name: Balcao, taskSessions: true }\n  - { name: Livre }\n"));
-    expect(team.bots[0]).toMatchObject({ name: "Balcao", taskSessions: true });
-    expect(team.bots[1].taskSessions).toBeUndefined();
-    expect(refused("version: 1\nbots: [{ name: Balcao, taskSessions: sim }]\n").message).toContain("bots[0].taskSessions");
-  });
-
   it("aceita audience só por bot, nunca nos defaults", () => {
     const team = loadTeamFile(file("version: 1\nbots:\n  - { name: GerenteDeOperacao, audience: internal }\n  - { name: Evergreen }\n"));
     expect(team.bots[0]).toMatchObject({ name: "GerenteDeOperacao", audience: "internal" });

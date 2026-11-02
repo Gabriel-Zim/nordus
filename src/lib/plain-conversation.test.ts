@@ -20,7 +20,12 @@ function simpleChatLines(): string[] {
   const lines: string[] = [];
   const say = (line: string | undefined) => { if (line) lines.push(line); };
   for (const kind of CLASSES) {
-    for (const done of [0, 1, 4]) say(errorRecovery("x", { class: kind, ...(done ? { done } : {}) }, NOW).line);
+    for (const done of [0, 1, 4]) {
+      const recovery = errorRecovery("x", { class: kind, ...(done ? { done } : {}) }, NOW);
+      say(recovery.line);
+      say(recovery.title);
+      say(recovery.why);
+    }
   }
   say(errorRecovery("This Claude account has reached its 5-hour limit", { class: "usage-limit", retryAt: NOW + 3_600_000 }, NOW).line);
   say(errorRecovery("turn interrupted — Nordus AI restarted", { class: "interrupted" }, NOW).line);
@@ -31,6 +36,8 @@ function simpleChatLines(): string[] {
   for (const label of Object.values(RECOVERY_LABEL)) say(t(label));
   say(t("chat.error.generic"));
   say(t("chat.error.details"));
+  for (const key of ["chat.recovery.resumeHint", "chat.recovery.autoResumeCancel", "chat.recovery.why.unknown"] as const) say(t(key));
+  say(t("chat.recovery.autoResume", { seconds: 10 }));
   say(t("chat.screen.show"));
   say(t("chat.activity.onIt"));
   for (const name of [

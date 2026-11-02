@@ -240,14 +240,3 @@ describe("PATCH /api/bots/:id vpsAlias relocation guard", () => {
     expect(scan).toHaveBeenCalledTimes(3);
   });
 });
-
-describe("taskSessions through the local API", () => {
-  it("refuses anything but a boolean and lets true or false through to the write", async () => {
-    const { store, bot, patch } = fixture();
-    expect(await patch(bot.id, { taskSessions: "sim" })).toMatchObject({ status: 400, body: { error: "taskSessions must be true or false" } });
-    expect((await patch(bot.id, { taskSessions: true })).status).toBe(200);
-    expect(store.bot(bot.id)?.taskSessions).toBe(true);
-    expect((await patch(bot.id, { taskSessions: false })).status).toBe(200);
-    expect(store.bot(bot.id)?.taskSessions).toBeUndefined();
-  });
-});

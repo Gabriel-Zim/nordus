@@ -1,123 +1,137 @@
 import type { SendKey } from "./send-key";
+import type { LocaleKey } from "@/locales";
+import { t } from "./i18n";
 
 export interface ShortcutItem {
   id: string;
-  description: string;
+  description: LocaleKey;
   macKeys: string[];
   winKeys: string[];
 }
 
 export interface ShortcutGroup {
-  category: string;
+  category: LocaleKey;
   items: ShortcutItem[];
 }
 
 export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   {
-    category: "Navigation",
+    category: "shortcuts.group.navigation",
     items: [
       {
         id: "command-palette",
-        description: "Open command palette (switcher & transcript search)",
+        description: "shortcuts.item.commandPalette",
         macKeys: ["⌘", "K"],
         winKeys: ["Ctrl", "K"],
       },
       {
         id: "new-bot",
-        description: "Create a new bot",
+        description: "shortcuts.item.newBot",
         macKeys: ["⌘", "N"],
         winKeys: ["Ctrl", "N"],
       },
       {
+        id: "new-conversation",
+        description: "shortcuts.item.newConversation",
+        macKeys: ["⌘", "⇧", "O"],
+        winKeys: ["Ctrl", "Shift", "O"],
+      },
+      {
+        id: "open-settings",
+        description: "shortcuts.item.openSettings",
+        macKeys: ["⌘", ","],
+        winKeys: ["Ctrl", ","],
+      },
+      {
         id: "jump-bot",
-        description: "Jump to bot 1–9 in the roster",
+        description: "shortcuts.item.jumpBot",
         macKeys: ["⌘", "1–9"],
         winKeys: ["Ctrl", "1–9"],
       },
       {
         id: "switch-bot",
-        description: "Switch to previous / next bot",
+        description: "shortcuts.item.switchBot",
         macKeys: ["⌘", "⇧", "[ / ]"],
         winKeys: ["Ctrl", "Shift", "[ / ]"],
       },
       {
         id: "toggle-sidebar",
-        description: "Collapse or expand the sidebar",
+        description: "shortcuts.item.toggleSidebar",
         macKeys: ["⌘", "\\"],
         winKeys: ["Ctrl", "\\"],
       },
       {
         id: "find-conversation",
-        description: "Find in conversation",
+        description: "shortcuts.item.findConversation",
         macKeys: ["⌘", "F"],
         winKeys: ["Ctrl", "F"],
       },
     ],
   },
   {
-    category: "Chat & Composer",
+    category: "shortcuts.group.chat",
     items: [
       {
         id: "send-message",
-        description: "Send message",
+        description: "shortcuts.item.sendMessage",
         macKeys: ["Return"],
         winKeys: ["Enter"],
       },
       {
         id: "new-line",
-        description: "Insert new line without sending",
+        description: "shortcuts.item.newLine",
         macKeys: ["⇧", "Return"],
         winKeys: ["Shift", "Enter"],
       },
       {
         id: "edit-last-message",
-        description: "Edit last message (when composer is empty)",
+        description: "shortcuts.item.editLast",
         macKeys: ["↑"],
         winKeys: ["↑"],
       },
       {
         id: "close-panel",
-        description: "Close active drawer, modal, or find bar",
+        description: "shortcuts.item.closePanel",
         macKeys: ["Esc"],
         winKeys: ["Esc"],
       },
       {
         id: "shortcuts-cheat-sheet",
-        description: "Show keyboard shortcuts cheat sheet",
+        description: "shortcuts.item.cheatSheet",
         macKeys: ["⌘", "/"],
         winKeys: ["Ctrl", "/"],
       },
     ],
   },
   {
-    category: "Calls",
+    category: "shortcuts.group.calls",
     items: [
       {
         id: "live-call-mute",
-        description: "Mute or unmute a Live call",
+        description: "shortcuts.item.liveMute",
         macKeys: ["⌘", "⇧", "M"],
         winKeys: ["Ctrl", "Shift", "M"],
       },
       {
         id: "live-call-hang-up",
-        description: "Hang up a Live call",
+        description: "shortcuts.item.liveHangUp",
         macKeys: ["⌘", "⇧", "H"],
         winKeys: ["Ctrl", "Shift", "H"],
       },
     ],
   },
   {
-    category: "Management & Groups",
+    category: "shortcuts.group.management",
     items: [
       {
         id: "save-bulletin",
-        description: "Save group instruction changes",
+        description: "shortcuts.item.saveBulletin",
         macKeys: ["⌘", "Return"],
         winKeys: ["Ctrl", "Enter"],
       },
       {
         id: "reorder-section",
-        description: "Reorder sidebar sections (focus a section heading)",
+        description: "shortcuts.item.reorderSection",
         macKeys: ["⌥", "↑ / ↓"],
         winKeys: ["Alt", "↑ / ↓"],
       },
@@ -186,8 +200,8 @@ export function filterShortcutGroups(
       const filteredItems = group.items.filter((item) => {
         const keys = shortcutKeysForPlatform(item, isMac).join(" ").toLowerCase();
         return (
-          item.description.toLowerCase().includes(normalized) ||
-          group.category.toLowerCase().includes(normalized) ||
+          t(item.description).toLowerCase().includes(normalized) ||
+          t(group.category).toLowerCase().includes(normalized) ||
           keys.includes(normalized)
         );
       });
@@ -198,4 +212,16 @@ export function filterShortcutGroups(
 
 export function commandPaletteKeys(isMac: boolean = isMacPlatform()): string {
   return isMac ? "⌘K" : "Ctrl+K";
+}
+
+export type AppChord = "new-bot" | "new-conversation" | "open-settings";
+
+/** Browsers report Shift+O as "O", and some keyboard layouts report "," only through `code`. */
+export function appChordFor(event: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">): AppChord | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null;
+  const key = event.key.toLowerCase();
+  if (key === "n" && !event.shiftKey) return "new-bot";
+  if (key === "o" && event.shiftKey) return "new-conversation";
+  if ((key === "," || event.code === "Comma") && !event.shiftKey) return "open-settings";
+  return null;
 }

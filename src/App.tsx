@@ -55,7 +55,8 @@ import { cloudFirstRun, cloudWelcomeVisible, useCloudWelcome } from "@/lib/cloud
 import { engineReady } from "@/components/EngineLibrary";
 import { CommandPalette } from "@/components/CommandPalette";
 import { onLocaleLoaded, setLocale, t } from "@/lib/i18n";
-import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { appChordFor, shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { newConversationAction } from "@/lib/app-actions";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { appUnreadCount, botForShortcut } from "@/lib/team-members";
 import { phonePairingSettingsAction, takePhonePairingRequest } from "@/lib/phone-pairing";
@@ -192,6 +193,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     && state.activeView === "chat" && !(!remoteClient && localVmWorkspaceBotId);
   const firstRun = cloudFirstRun({ welcome: welcomeOnScreen, intent: cloudAsk, signIn: cloudSignIn || cloudJobWaiting });
 
+  const latestState = useRef(state);
+  latestState.current = state;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || state.shortcutsOpen) return;
@@ -203,9 +206,19 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
-      if (e.key === "n" && !e.shiftKey) {
+      const chord = appChordFor(e);
+      if (chord === "new-bot") {
         e.preventDefault();
         if (!guest) dispatch({ type: "toggleNewBot", open: true });
+      } else if (chord === "new-conversation") {
+        const action = newConversationAction(latestState.current);
+        if (action) {
+          e.preventDefault();
+          dispatch(action);
+        }
+      } else if (chord === "open-settings") {
+        e.preventDefault();
+        if (!guest) dispatch({ type: "toggleAppSettings", open: true });
       } else if (/^[1-9]$/.test(e.key)) {
         const target = botForShortcut(state.bots, state.selectedId, e.key);
         if (target) {

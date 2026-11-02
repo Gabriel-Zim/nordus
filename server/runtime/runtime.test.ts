@@ -830,6 +830,19 @@ describe("Runtime: a root's later executions (every turn a root)", () => {
     invariants(w);
   });
 
+  it("stopping the requester also drops a teammate's question to the person: no turn is running and nothing would resume it", async () => {
+    const w = world((a) => a.assignee.botId === "pa" ? { kind: "needs_input", question: "Aprova esta copy?" } : undefined);
+    const root = w.runtime.begin(beginReq());
+    const asks = ok(w.runtime.enqueue(toBot("pa", root.id, undefined, { assignee: { botId: "pa", destination: { kind: "standing_thread", threadId: "pa-main" } } })));
+    w.runtime.tick(); await flush();
+    w.runtime.end(root.id, { ok: true, text: "Asked pa" });
+    expect(w.store.get(asks.id)?.status).toBe("needs_input");
+    expect(w.runtime.stopRequester({ threadId: "chief-chat" })).toEqual([]);
+    expect(w.store.get(asks.id)).toMatchObject({ status: "cancelled", outcome: "stopped" });
+    expect(w.store.get(root.id)?.status).toBe("cancelled");
+    invariants(w);
+  });
+
   it("open() re-parks a root on its cards without a new item, and reruns a cut root once before failing it interrupted", async () => {
     const store = openRuntimeStore(":memory:");
     const first = world(undefined, {}, store);

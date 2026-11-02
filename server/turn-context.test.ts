@@ -5,6 +5,7 @@ import type { Message } from "./store.ts";
 import { toolDetailPreview } from "./tool-summary.ts";
 
 import { buildTurnContext, engineIsFresh, buildRecoveryText } from "./turn-context.ts";
+import { freshSessionDue, lastConversationActivityAt, validFreshSessionIdleMinutes } from "../shared/fresh-session.ts";
 
 const transcript = [
   { role: "user" as const, text: "my dog is named Biscuit" },
@@ -224,5 +225,50 @@ describe("tool history in an inline replay", () => {
     // a tool line is never a user turn: a greeting plus tool calls is still nothing to join
     const greeted = [{ role: "assistant" as const, text: "Hey — I'm Wren." }, { role: "assistant" as const, text: "[ran: Read — ok]" }];
     expect(engineIsFresh({ instanceId: "codex", lastInstanceId: "claude", resumeCursors: { claude: "s1" }, transcript: greeted })).toBe(false);
+  });
+});
+
+describe("fresh session after the conversation sat idle", () => {
+  const now = Date.UTC(2026, 9, 22, 12, 0, 0);
+  const minutesAgo = (n: number) => now - n * 60_000;
+  const history = [{ id: "m1", at: minutesAgo(30) }, { id: "m2", at: minutesAgo(12) }, { id: "now", at: now }];
+  // What the turn does with the cursor the way the server wires it: a due limit drops the cursor, which makes the engine fresh.
+  const turn = (idleMinutes: number | undefined, cursors: Record<string, unknown>) => {
+    const idleFresh = freshSessionDue({ idleMinutes, lastActivityAt: lastConversationActivityAt(history, new Set(["now"])), now });
+    const resumeCursors = idleFresh ? {} : cursors;
+    const fresh = engineIsFresh({ instanceId: "claude", lastInstanceId: "claude", resumeCursors, transcript });
+    return { idleFresh, ...buildTurnContext({ text: "next request", transcript, rewound: false, fresh, externallyUpdated: false, replaysNatively: false, idleFresh }) };
+  };
+
+  it("resumes the same session below the limit", () => {
+    const out = turn(15, { claude: "sess-1" });
+    expect(out).toMatchObject({ idleFresh: false, resume: true, turnText: "next request" });
+  });
+
+  it("starts a fresh session above the limit and hands the conversation over as text", () => {
+    const out = turn(10, { claude: "sess-1" });
+    expect(out.idleFresh).toBe(true);
+    expect(out.resume).toBe(false);
+    expect(out.turnText).toContain("[New request in this conversation. A fresh session was started; the earlier conversation follows as text. Files from earlier work are on disk.]");
+    expect(out.turnText).toContain("User: my dog is named Biscuit");
+    expect(out.turnText).not.toContain("joining this conversation");
+    expect(out.turnText.endsWith("next request")).toBe(true);
+  });
+
+  it("behaves as before without the field", () => {
+    expect(turn(undefined, { claude: "sess-1" })).toMatchObject({ idleFresh: false, resume: true, turnText: "next request" });
+  });
+
+  it("measures from the newest earlier message and ignores the ones this turn is made of", () => {
+    expect(lastConversationActivityAt(history, new Set(["now"]))).toBe(minutesAgo(12));
+    expect(lastConversationActivityAt([{ id: "now", at: now }], new Set(["now"]))).toBeUndefined();
+    expect(freshSessionDue({ idleMinutes: 1, lastActivityAt: undefined, now })).toBe(false);
+    expect(freshSessionDue({ idleMinutes: 12, lastActivityAt: minutesAgo(12), now })).toBe(false);
+  });
+
+  it("accepts only a sensible number of minutes", () => {
+    for (const ok of [1, 10, 0.5, 10_080]) expect(validFreshSessionIdleMinutes(ok)).toBe(true);
+    for (const bad of [0, -1, NaN, Infinity, 10_081, "10", null, undefined]) expect(validFreshSessionIdleMinutes(bad)).toBe(false);
+    expect(freshSessionDue({ idleMinutes: -5, lastActivityAt: minutesAgo(999), now })).toBe(false);
   });
 });

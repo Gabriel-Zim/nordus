@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { setLocale } from "@/lib/i18n";
 import type { Message } from "@/state/store";
-import { doneStepsBefore, errorRecovery, resumeSendId, whenItResets } from "./error-recovery";
+import { doneStepsBefore, errorRecovery, mayAutoResume, resumeSendId, whenItResets } from "./error-recovery";
 import { parseSendId } from "../../server/send-idempotency";
 
 const NOW = new Date(2026, 9, 19, 1, 0).getTime();
@@ -12,7 +12,7 @@ describe("errorRecovery", () => {
   it("gives each class of failure its own sentence and way out", () => {
     setLocale("pt-BR");
     expect(errorRecovery("connect ECONNREFUSED 127.0.0.1:8317", undefined, NOW)).toEqual({
-      line: "Perdi a conexão com a IA agora. Toque em tentar de novo que eu refaço.", actions: ["retry", "open-engines"],
+      line: "Perdi a conexão com a IA agora. Toque em tentar de novo que eu refaço.", actions: ["retry", "open-engines"], passing: true,
     });
     expect(errorRecovery("Not logged in · Please run /login", undefined, NOW)).toEqual({
       line: "A conta de IA deste robô desconectou. Conecte de novo e eu continuo.", actions: ["sign-in"],
@@ -20,7 +20,7 @@ describe("errorRecovery", () => {
     expect(errorRecovery("API Error: 529 Overloaded", undefined, NOW).actions).toEqual(["retry", "open-engines"]);
     expect(errorRecovery("ENOSPC: no space left on device", undefined, NOW).actions).toEqual(["see-backups", "retry"]);
     expect(errorRecovery("turn interrupted — Nordus AI restarted", { class: "interrupted" }, NOW)).toEqual({
-      line: "O Nordus reiniciou antes de eu começar. Toque em tentar de novo que eu refaço.", actions: ["retry"],
+      line: "O Nordus reiniciou antes de eu começar. Toque em tentar de novo que eu refaço.", actions: ["retry"], passing: true,
     });
   });
 
@@ -37,17 +37,39 @@ describe("errorRecovery", () => {
     const cut = errorRecovery("turn interrupted — Nordus AI restarted", { class: "interrupted", done: 2 }, NOW);
     expect(cut).toEqual({
       line: "O Nordus reiniciou no meio do trabalho. Eu já tinha feito 2 passos. Confira o que ficou pronto e toque em retomar que eu sigo sem repetir.",
-      actions: ["see-done", "resume"],
+      title: "Parei depois de 2 passos",
+      why: "O Nordus reiniciou no meio do trabalho.",
+      actions: ["resume", "see-done"],
+      passing: true,
     });
     expect(errorRecovery("Not logged in", { class: "signed-out", done: 1 }, NOW)).toEqual({
       line: "A conta de IA desconectou no meio do trabalho. Eu já tinha feito 1 passo. Confira o que ficou pronto e toque em retomar que eu sigo sem repetir.",
-      actions: ["see-done", "sign-in", "resume"],
+      title: "Parei depois de 1 passo",
+      why: "A conta de IA desconectou no meio do trabalho.",
+      actions: ["sign-in", "resume", "see-done"],
     });
     expect(errorRecovery("claude exited null before result", { class: "engine-down", done: 2 }, NOW).line).not.toContain("Tente de novo");
     expect(errorRecovery("Delete one computer to start another.", { done: 1 }, NOW)).toEqual({
       line: "Parei no meio do trabalho. Eu já tinha feito 1 passo. Confira o que ficou pronto e toque em retomar que eu sigo sem repetir.",
-      actions: ["see-done", "resume"],
+      title: "Parei depois de 1 passo",
+      actions: ["resume", "see-done"],
     });
+  });
+
+  it("says why an interrupted turn stopped, from the server's own words", () => {
+    setLocale("pt-BR");
+    const why = (cause: string) => errorRecovery(cause, { class: "interrupted", done: 3 }, NOW).why;
+    expect(why("no activity for 20 minutes — the turn was stopped")).toBe("A IA ficou 20 minutos sem responder, então eu parei.");
+    expect(why("no activity for 20 minutes — the turn was stopped. This Cloud ran out of memory while 5 tasks ran at once")).toBe("O Nordus ficou sem memória com muitas tarefas rodando ao mesmo tempo.");
+    expect(why("turn interrupted — provider settings changed")).toBe("As configurações da conta de IA mudaram durante o trabalho.");
+    expect(why("turn interrupted — Nordus restarted")).toBe("O Nordus reiniciou no meio do trabalho.");
+  });
+
+  it("only a passing failure may resume on its own", () => {
+    expect(errorRecovery("x", { class: "engine-down", done: 2 }, NOW).passing).toBe(true);
+    expect(errorRecovery("x", { class: "usage-limit", done: 2 }, NOW).passing).toBeUndefined();
+    expect(errorRecovery("x", { class: "signed-out" }, NOW).passing).toBeUndefined();
+    expect(errorRecovery("Delete one computer to start another.", { done: 1 }, NOW).passing).toBeUndefined();
   });
 
   it("an interrupted row from before the server counted the work does not claim nothing was done", () => {
@@ -98,6 +120,17 @@ describe("doneStepsBefore", () => {
     ];
     expect(doneStepsBefore(transcript, 2, "goal-2")).toHaveLength(1);
     expect(doneStepsBefore(transcript, 2)).toHaveLength(2);
+  });
+});
+
+describe("mayAutoResume", () => {
+  const ask = (text: string): Message => ({ id: "u", at: NOW - 60_000, role: "user", kind: "text", text } as Message);
+  const failure = (at: number): Message => ({ id: "x", at, role: "bot", kind: "activity", tool: { name: "error: turn interrupted — Nordus AI restarted", ok: false } } as Message);
+  it("resumes a fresh failure once, never one opened later or the failure of a resume already sent", () => {
+    setLocale("pt-BR");
+    expect(mayAutoResume([ask("manda o relatório"), failure(NOW - 30_000)], 1, NOW)).toBe(true);
+    expect(mayAutoResume([ask("manda o relatório"), failure(NOW - 10 * 60_000)], 1, NOW)).toBe(false);
+    expect(mayAutoResume([ask("Continue de onde parou. Antes, confira o que já foi feito para não repetir nada."), failure(NOW - 30_000)], 1, NOW)).toBe(false);
   });
 });
 

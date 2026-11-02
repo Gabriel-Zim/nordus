@@ -39,6 +39,22 @@ describe("KeyboardShortcutsModal", () => {
     fixture.sendKey = "enter";
   });
 
+  it("speaks the reader's language", async () => {
+    const { setLocale } = await import("@/lib/i18n");
+    setLocale("pt-br");
+    try {
+      const html = renderToStaticMarkup(createElement(KeyboardShortcutsModal, { open: true, onClose: vi.fn() }));
+      expect(html).toContain("Atalhos de teclado");
+      expect(html).toContain('aria-label="Buscar atalhos"');
+      expect(html).toContain("Navegação");
+      expect(html).toContain("Começar uma conversa nova com o bot aberto");
+      expect(keys(html, "Enviar mensagem")).toEqual(["Enter"]);
+      expect(html).not.toContain("Send message");
+    } finally {
+      setLocale("en");
+    }
+  });
+
   it("does not render when closed", () => {
     expect(renderToStaticMarkup(createElement(KeyboardShortcutsModal, { open: false, onClose: vi.fn() }))).toBe("");
   });

@@ -81,7 +81,7 @@ describe("a cancelled turn", () => {
     expect(notice?.className).toContain("flex-wrap");
     expect(notice?.className).not.toMatch(/\b(?:ml-|mr-|left-|right-|text-left|text-right)/);
     expect(host.textContent).not.toContain(CANCELLED);
-    expect(host.innerHTML).not.toContain("border-danger");
+    expect(host.innerHTML).not.toContain("data-turn-error");
     const button = retry();
     expect(button).toBeTruthy();
     flushSync(() => button!.click());
@@ -98,7 +98,7 @@ describe("a cancelled turn", () => {
     render({ ...bot, messages: [ask, { id: "cancel", role: "bot", kind: "activity", at: 2, tool: { name: `error: ${CANCELLED}`, ok: false } }] });
     expect(host.textContent).toContain("Stopped");
     expect(host.textContent).not.toContain(CANCELLED);
-    expect(host.innerHTML).not.toContain("border-danger");
+    expect(host.innerHTML).not.toContain("data-turn-error");
     flushSync(() => root.render(createElement(ChatView, { bot: { ...bot, messages: [
       ask,
       { id: "cancel", role: "bot", kind: "activity", at: 2, tool: { name: "stopped: Stopped", ok: true } },
@@ -112,7 +112,7 @@ describe("a cancelled turn", () => {
     const cause = `${CANCELLED} See the logs.`;
     render({ ...bot, messages: [ask, { id: "error", role: "bot", kind: "activity", at: 2, tool: { name: `error: ${cause}`, ok: false } }] });
     expect(host.textContent).toContain(cause);
-    expect(host.innerHTML).toContain("border-danger");
+    expect(host.innerHTML).toContain("data-turn-error");
     expect(host.textContent).not.toContain("Stopped");
     expect(retry()).toBeTruthy();
   });

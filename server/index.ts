@@ -404,6 +404,7 @@ import { turnStartLogLine } from "./turn-log.ts";
 import { TurnStops, doneActions, lastTurnRows, restartActions, restartBlockers, stoppedTurnOutcome, turnEvidence } from "./turn-outcome.ts";
 import { turnDoneCount } from "./turn-done.ts";
 import { buildRecoveryText, buildTurnContext, engineIsFresh, replaysNatively } from "./turn-context.ts";
+import { freshSessionDue, lastConversationActivityAt } from "../shared/fresh-session.ts";
 import { Handoffs, handedStateUsable, isContextMessage, recordHanded, renderUnseen, sessionStart, unseenMessages, withUnseenMessages, type ContextMessage } from "./delta-context.ts";
 import { extractReplayImages, extractTurnImages } from "./turn-images.ts";
 import { callTitleExcerpt, threadTitlePrompt, type ThreadTitleSource } from "./thread-title.ts";
@@ -9322,7 +9323,6 @@ async function acceptDirectSend(
       if (!store.taskByThread(currentAtStart.id, threadId)) throw Object.assign(new Error("the target task no longer exists"), { status: 409 });
 
       if (guardedStart) return guardedStart(currentAtStart);
-      if (desk.owns(currentAtStart, input)) return desk.handle(currentAtStart, input);
 
       // Nordus: a short "para" or "esquece isso" from the person ends the running turn, as Stop does.
       if (currentAtStart.busy && threadBusy(botId, threadId) && !via && !relayed && personPresent &&
@@ -9429,9 +9429,8 @@ async function stopOnRequest(
 }
 
 const desk = createDesk({
-  store, startTurn, threadBusy, awaitingTeammates, botAtThreadCapacity, queueSteeredMessage, queuedThreadPosition, hasQueuedSteeredMessages, decider, cfg, DATA_DIR,
-  serverAtSessionCapacity: () => atServerSessionCapacity(countBusySessions(store, threadBusy)),
-  continueTask: acceptDirectSend, drain: () => queueMicrotask(drainQueuedSends),
+  store, startTurn, threadBusy, awaitingTeammates, botAtThreadCapacity, hasQueuedSteeredMessages, decider, cfg, DATA_DIR,
+  drain: () => queueMicrotask(drainQueuedSends),
 });
 bus.subscribe((event: RuntimeEvent) => desk.observe(event));
 
@@ -10048,7 +10047,13 @@ async function startTurn(
         pinned: instance.adapter.capabilities.pinnedSessionModel === true, instanceId, model,
         liveSessionModel: sessionModelByThread.get(threadId), lastContextModel: task.lastContextModel,
       });
-      if (contextReset) store.patchTask(bot.id, threadId, { resumeCursors: {} });
+      // Nordus: a bot with an idle limit starts a fresh provider session once the conversation sat idle past it; the history goes in as text.
+      const idleFresh = isInternalBot(bot, readSecondBrain(DATA_DIR)) && freshSessionDue({
+        idleMinutes: bot.freshSessionIdleMinutes,
+        lastActivityAt: lastConversationActivityAt(activeMessages, skipTranscript),
+        now: Date.now(),
+      });
+      if (contextReset || idleFresh) store.patchTask(bot.id, threadId, { resumeCursors: {} });
 
       // After a rewind the native session still holds the abandoned branch; the flag clears only once dispatched, or a failed dispatch loses the next attempt's history.
       const rewound = Boolean(task.rewound);
@@ -10061,7 +10066,7 @@ async function startTurn(
         engineIsFresh({ instanceId, lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: replayable });
       const strictResume = instance.adapter.capabilities.strictResume === true;
       const cursor = task.resumeCursors[instanceId];
-      const handed = strictResume && !rewound && !contextReset && !fresh && !externalContextMarker && cursor !== undefined
+      const handed = strictResume && !rewound && !contextReset && !idleFresh && !fresh && !externalContextMarker && cursor !== undefined
         ? task.handedMessages?.[instanceId] : undefined;
       const unseen = handed && handedStateUsable(handed, cursor, contextOrder) ? unseenMessages(replayable, contextOrder, handed) : undefined;
       const externalUpdate = Boolean(opts?.coordination?.resumed || unseen?.some((m) => m.keep));
@@ -10095,7 +10100,8 @@ async function startTurn(
           text: userTurnText,
           transcript: replay.transcript,
           rewound,
-          fresh: fresh || contextReset,
+          fresh: fresh || contextReset || idleFresh,
+          idleFresh,
           externallyUpdated: Boolean(externalContextMarker) || handedStale,
           replaysNatively: replaysNatively(instance.driverKind),
         });

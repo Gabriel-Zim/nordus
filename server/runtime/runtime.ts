@@ -554,7 +554,8 @@ export class Runtime {
           if (isTerminal(child)) continue;
           if (child.status === "queued" && (child.executions === 0 || child.restart === "rerun")) {
             this.cancelTree(child, child.restart === "rerun" ? "Stopped before it resumed" : "Stopped before it started", "cancelled", "stopped");
-          } else left.push(child);
+          } else if (child.status === "needs_input") this.cancelTree(child, reason, "cancelled", "stopped");
+          else left.push(child);
         }
         this.settle(n, "cancelled", "stopped", reason);
       }

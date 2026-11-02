@@ -552,12 +552,11 @@ describe("an approval the bot waits on in another thread", () => {
   const waiting = { threadId: "carousel", title: "Carrossel Built to Endure", createdAt: 2, activity: "waiting-on-you" as const };
   const view = (tasks: NonNullable<Bot["tasks"]>) => renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, tasks } }));
 
-  it("is pinned above the message box with the task it belongs to and the way in", () => {
+  it("shows no task card above the message box before the request itself is read", () => {
     const markup = view([...bot.tasks!, waiting]);
-    expect(markup).toContain("data-other-thread-approval");
-    expect(markup).toContain("In task: Carrossel Built to Endure");
-    expect(markup).toContain("Open task");
-    expect(markup.indexOf("data-other-thread-approval")).toBeLessThan(markup.indexOf("<textarea"));
+    expect(markup).not.toContain("data-other-thread-approval");
+    expect(markup).not.toContain("Carrossel Built to Endure");
+    expect(markup).not.toContain("Open task");
   });
 
   it("is not doubled when the open thread is the one waiting", () => {

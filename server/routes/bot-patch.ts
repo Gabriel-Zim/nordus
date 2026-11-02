@@ -3,6 +3,7 @@ import { z } from "zod";
 import { approvalModeFor, isApprovalMode, type ApprovalMode } from "../../shared/approval-mode.ts";
 import { botMcpServerNames, mcpSelectionWidens } from "../../shared/bot-mcp-servers.ts";
 import { BOT_TAG_MAX, cleanBotTag } from "../../shared/bot-tags.ts";
+import { MAX_FRESH_SESSION_IDLE_MINUTES, validFreshSessionIdleMinutes } from "../../shared/fresh-session.ts";
 import { normalizeConnectorScopes } from "../../shared/connector-scopes.ts";
 import { normalizeOutboundPolicy } from "../../shared/outbound.ts";
 import { parseTeamLeadPolicy } from "../../shared/team-lead.ts";
@@ -319,10 +320,6 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
         if (typeof body.modelFixed !== "boolean") return json(res, 400, { error: "modelFixed must be true or false" });
         patch.modelFixed = body.modelFixed || undefined;
       }
-      if (body.taskSessions !== undefined) {
-        if (typeof body.taskSessions !== "boolean") return json(res, 400, { error: "taskSessions must be true or false" });
-        patch.taskSessions = body.taskSessions || undefined;
-      }
       if (body.audience !== undefined) {
         if (body.audience !== null && body.audience !== "internal" && body.audience !== "client") return json(res, 400, { error: "audience must be \"internal\", \"client\" or null" });
         patch.audience = body.audience ?? undefined;
@@ -364,6 +361,16 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
           return json(res, 400, { error: "nativeMode is for internal bots only" });
         }
         patch.nativeMode = body.nativeMode === true ? true : undefined;
+      }
+      // Nordus: internal bots only; a number of minutes turns it on, null (or 0) turns it off.
+      if (body.freshSessionIdleMinutes !== undefined) {
+        if (body.freshSessionIdleMinutes !== null && body.freshSessionIdleMinutes !== 0 && !validFreshSessionIdleMinutes(body.freshSessionIdleMinutes)) {
+          return json(res, 400, { error: `freshSessionIdleMinutes must be a number of minutes above 0 and up to ${MAX_FRESH_SESSION_IDLE_MINUTES}, or null` });
+        }
+        if (typeof body.freshSessionIdleMinutes === "number" && body.freshSessionIdleMinutes > 0 && existingBot && existingBot.audience !== "internal") {
+          return json(res, 400, { error: "freshSessionIdleMinutes is for internal bots only" });
+        }
+        patch.freshSessionIdleMinutes = typeof body.freshSessionIdleMinutes === "number" && body.freshSessionIdleMinutes > 0 ? body.freshSessionIdleMinutes : undefined;
       }
       if (body.parkDirectMessages !== undefined) {
         if (typeof body.parkDirectMessages !== "boolean") return json(res, 400, { error: "parkDirectMessages must be true or false" });

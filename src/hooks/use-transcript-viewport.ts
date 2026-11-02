@@ -127,17 +127,17 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     preExpandHeight.current = scrollRef.current ? { key: transcriptKey, height: scrollRef.current.scrollHeight } : null;
   };
   const oldestId = messages[0]?.id;
+  const olderPending = Boolean(state.loadingOlder[threadId]);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const captured = preExpandHeight.current;
     if (!captured || !el) return;
-    preExpandHeight.current = null;
+    preExpandHeight.current = olderPending && captured.key === transcriptKey ? { key: transcriptKey, height: el.scrollHeight } : null;
     if (captured.key !== transcriptKey || followRef.current) return;
     el.scrollTop += el.scrollHeight - captured.height;
     markProgrammatic(el);
-  }, [oldestId, transcriptKey]);
+  }, [oldestId, olderPending, transcriptKey]);
 
-  const olderPending = Boolean(state.loadingOlder[threadId]);
   const olderFailed = Boolean(state.olderFailed[threadId]);
   const loadOlder = () => {
     capturePrependHeight();

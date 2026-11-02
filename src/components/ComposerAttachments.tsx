@@ -3,6 +3,7 @@ import { ClipboardPaste, File as FileIcon, FileText, LoaderCircle, Play, X } fro
 import { cn } from "@/lib/cn";
 import {
   attachmentImageUrl,
+  imageRoomLeft,
   intakeFiles,
   pasteSummary,
   type Attachment,
@@ -51,8 +52,8 @@ export function ComposerAttachments({
   const [preview, setPreview] = useState<PreviewImage | null>(null);
   // dragenter/dragleave fire once per element crossed, so the overlay tracks depth.
   const depth = useRef(0);
-  const callbacks = useRef({ onAdd, onNotice, onPendingChange, allowImages, uploadImage, uploadFile });
-  callbacks.current = { onAdd, onNotice, onPendingChange, allowImages, uploadImage, uploadFile };
+  const callbacks = useRef({ onAdd, onNotice, onPendingChange, allowImages, uploadImage, uploadFile, items });
+  callbacks.current = { onAdd, onNotice, onPendingChange, allowImages, uploadImage, uploadFile, items };
   const pendingDrops = useRef(new Set<symbol>());
 
   useEffect(() => {
@@ -89,6 +90,7 @@ export function ComposerAttachments({
           getPath: pathForFile,
           uploadImage: callbacks.current.uploadImage,
           uploadFile: callbacks.current.uploadFile,
+          imageRoom: imageRoomLeft(callbacks.current.items),
         });
         if (attachments.length) callbacks.current.onAdd(attachments);
         if (message) callbacks.current.onNotice(message);

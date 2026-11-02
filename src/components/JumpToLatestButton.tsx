@@ -5,15 +5,16 @@ import { t } from "@/lib/i18n";
 
 /** How many replies arrived while the person was scrolled up; resets once they are back at the bottom. */
 export function useArrivedWhileAway(messages: readonly { id: string; kind: string; role: string }[], following: boolean): number {
-  const [mark, setMark] = useState<number | null>(null);
-  const count = messages.length;
-  const last = useRef(count);
-  last.current = count;
+  const [lastSeenId, setLastSeenId] = useState<string | null>(null);
+  const latestId = useRef<string | undefined>(undefined);
+  latestId.current = messages.at(-1)?.id;
   useEffect(() => {
-    setMark(following ? null : last.current);
+    setLastSeenId(following ? null : (latestId.current ?? null));
   }, [following]);
-  if (following || mark === null) return 0;
-  return messages.slice(mark).filter((message) => message.kind === "text" && message.role === "bot").length;
+  if (following || lastSeenId === null) return 0;
+  const seenAt = messages.findLastIndex((message) => message.id === lastSeenId);
+  if (seenAt < 0) return 0;
+  return messages.slice(seenAt + 1).filter((message) => message.kind === "text" && message.role === "bot").length;
 }
 
 export function JumpToLatestButton({ onClick, className, style, count = 0 }: { onClick: () => void; className?: string; style?: CSSProperties; count?: number }) {

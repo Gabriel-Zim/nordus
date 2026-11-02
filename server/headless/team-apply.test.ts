@@ -332,37 +332,6 @@ describe("audience", () => {
   });
 });
 
-describe("taskSessions", () => {
-  const echo = { id: "b1", name: "Priya", section: "Launch Room", title: "Skeptical buyer", description: "", approvalMode: "full",
-    computer: "browser", browserProfile: "guest", toolScope: { deny: ["mcp:mail:*"] }, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
-    taskSessions: false };
-
-  it("manda PATCH só quando muda; false e ausente são o mesmo", () => {
-    expect(botPatch({ ...priya, taskSessions: true }, echo, "Launch Room")).toEqual({ patch: { taskSessions: true }, changes: ["taskSessions off → on"] });
-    expect(botPatch({ ...priya, taskSessions: true }, { ...echo, taskSessions: true }, "Launch Room")).toEqual({ patch: {}, changes: [] });
-    expect(botPatch({ ...priya, taskSessions: false }, { ...echo, taskSessions: undefined }, "Launch Room")).toEqual({ patch: {}, changes: [] });
-    expect(botPatch({ ...priya, taskSessions: false }, { ...echo, taskSessions: true }, "Launch Room").patch).toEqual({ taskSessions: false });
-    expect(botPatch(priya, { ...echo, taskSessions: true }, "Launch Room")).toEqual({ patch: {}, changes: [] });
-  });
-
-  it("exporta o campo só quando ligado", async () => {
-    const { client } = workspace({ bots: [{ id: "b1", name: "Balcao", taskSessions: true }, { id: "b2", name: "Livre" }] });
-    const dir = mkdtempSync(join(tmpdir(), "nordus-team-export-"));
-    try {
-      const out = join(dir, "team.yaml");
-      const ctx = { verb: "team export", flags: { out }, positionals: [], env: {}, io: { out: () => undefined, err: () => undefined, readStdin: async () => "" },
-        output: new Output({ out: () => undefined, err: () => undefined, readStdin: async () => "" }, {}), client: async () => client,
-        signal: new AbortController().signal, defaultWaitMs: 1_000 } as VerbContext;
-      await teamExportVerb(ctx);
-      const back = loadTeamFile(out);
-      expect(back.bots.find((bot) => bot.name === "Balcao")).toMatchObject({ taskSessions: true });
-      expect(back.bots.find((bot) => bot.name === "Livre")).not.toHaveProperty("taskSessions");
-    } finally {
-      await removeTempDir(dir);
-    }
-  });
-});
-
 describe("mcpServers e modelFixed", () => {
   const echo = { id: "b1", name: "Priya", section: "Launch Room", title: "Skeptical buyer", description: "", approvalMode: "full",
     computer: "browser", browserProfile: "guest", toolScope: { deny: ["mcp:mail:*"] }, modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },

@@ -1,4 +1,5 @@
 import { t } from "@/lib/i18n";
+import { readyBotTryAsking } from "@/lib/ready-bots";
 
 const SECTION_HEADING = /^#{1,4}\s*.*(respons|tarefa|faz|fazer|serviç|servic|skills?|capacidade|duties|tasks|does|handles)/i;
 const ANY_HEADING = /^#{1,4}\s/;
@@ -22,8 +23,10 @@ function bulletsFromSoul(soul: string): string[] {
   return found;
 }
 
-/** Three requests a person can start from, drawn from the bot's own duties when its SOUL lists them, else from its role. */
+/** Three requests a person can start from: a gallery bot's own first jobs, else the duties its SOUL lists, else its role. */
 export function starterRequests(bot: { title?: string; soul?: string }): string[] {
+  const ready = readyBotTryAsking(bot.soul);
+  if (ready.length) return ready.slice(0, 3);
   const requests = bulletsFromSoul(bot.soul ?? "").slice(0, 3).map((item) => t("chat.starter.help", { item: item.charAt(0).toLowerCase() + item.slice(1) }));
   const role = bot.title?.trim();
   const fillers = [

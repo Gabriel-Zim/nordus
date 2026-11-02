@@ -58,7 +58,7 @@ describe("a cancelled turn in a room", () => {
     render([ask, cancel]);
     expect(host.textContent).toContain("Stopped");
     expect(host.textContent).not.toContain(CANCELLED);
-    expect(host.innerHTML).not.toContain("border-danger");
+    expect(host.innerHTML).not.toContain("data-turn-error");
     flushSync(() => retry()!.click());
     expect(fixture.dispatch).toHaveBeenCalledWith({
       type: "sendGroup",

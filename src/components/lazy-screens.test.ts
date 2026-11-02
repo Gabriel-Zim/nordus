@@ -291,7 +291,7 @@ describe("launch bundle", () => {
       "AppNotices", "BrowserGoalCard", "CallRecordRow", "CitationUI", "CloudEngineSignIn", "CloudHowTo", "CloudIntent", "CloudMove",
       "CloudSetup", "cloud-welcome/CloudWelcome", "ConnectorCard", "FilePreviewButton", "FloatingBrowser", "GroupCallView", "HermesMark",
       "HtmlAttachment", "LiveCallBar", "MarkdownTable", "NoEngines", "PlaceChip", "RichTable", "SecretRequestCard", "SignInRequestCard",
-      "StarterChips", "TaskPicker", "UpdateBanner", "UpdateIndicator", "VideoAttachment", "VoiceNoteBubble", "WorkspaceBackupSettings",
+      "StarterChips", "TaskPicker", "UpdateBanner", "VideoAttachment", "VoiceNoteBubble", "WorkspaceBackupSettings",
     ].map((name) => `components/${name}.tsx`);
     expect(drawn.filter((file) => !reached.has(file))).toEqual([]);
   });

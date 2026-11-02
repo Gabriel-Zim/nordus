@@ -29,3 +29,23 @@ describe("starter requests", () => {
     expect(requests[1]).toBe("Me diga o que está pendente e o que você sugere fazer primeiro.");
   });
 });
+
+describe("starter requests for a bot from the gallery", () => {
+  it("offers the ready bot's own first jobs, in the person's language", async () => {
+    const { readyBot } = await import("./ready-bots");
+    setLocale("pt-br");
+    expect(starterRequests({ title: "Triagem de e-mail", soul: readyBot("inbox")!.soul })).toEqual([
+      "O que na minha caixa precisa de mim hoje?",
+      "Escreva respostas para os três e-mails mais urgentes",
+      "Quem eu não respondo há mais de uma semana?",
+    ]);
+    setLocale("en");
+    expect(starterRequests({ soul: `${readyBot("inbox")!.soul}\n` })[0]).toBe("What in my inbox needs me today?");
+  });
+
+  it("goes back to the bot's duties once its instructions were edited", async () => {
+    const { readyBot } = await import("./ready-bots");
+    setLocale("pt-br");
+    expect(starterRequests({ title: "Caixa", soul: `${readyBot("inbox")!.soul}\nResponda sempre em português.` })[0]).not.toBe("O que na minha caixa precisa de mim hoje?");
+  });
+});

@@ -4,7 +4,7 @@ import { api, BotEditorStore, useStore, type Bot, type ModelSelection } from "@/
 import { BotCreationDraft, EMPTY_BOT_DEFAULTS } from "@/lib/bot-creation-draft";
 import { createConfiguredBot, preparedBotTemplate } from "@/lib/create-configured-bot";
 import { BOT_ROLES, roleProfilePatch } from "@/lib/bot-roles";
-import { readyBot, readyBotTemplate } from "@/lib/ready-bots";
+import { localizedReadyBot, readyBot, readyBotTemplate } from "@/lib/ready-bots";
 import { chosenPreset, presetDraftPatch, presetGroups, presetPictureFile, presetSummaryLines, type BotPreset } from "@/lib/bot-presets";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -120,7 +120,8 @@ export function LocalNewBotDialog({ defaultsMode = false, onClose, section, onCr
         }
         if (!defaultsMode) defaults.profile.name = defaults.profile.name?.trim() || result.suggestedName;
         if (section !== undefined) defaults.profile.section = section;
-        const ready = defaultsMode || !readyBotId ? undefined : readyBot(readyBotId);
+        const found = defaultsMode || !readyBotId ? undefined : readyBot(readyBotId);
+        const ready = found && localizedReadyBot(found);
         const next = new BotCreationDraft(ready ? readyBotTemplate(defaults, ready) : defaults, () => render(value => value + 1));
         if (ready) next.role = ready.id;
         setDraft(next);

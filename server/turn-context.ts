@@ -13,6 +13,8 @@ export interface TurnContextInput {
   fresh: boolean;
   externallyUpdated: boolean;
   replaysNatively: boolean;
+  /** Nordus: the bot's idle limit passed, so this fresh session opens a new request rather than joining one. */
+  idleFresh?: boolean;
 }
 
 export function engineIsFresh(input: {
@@ -32,6 +34,8 @@ const REWOUND_PREAMBLE =
   "[The user rewound this conversation (edited a message or switched to another version). Everything before this point was replaced by the following history:]";
 const FRESH_PREAMBLE =
   "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
+const IDLE_FRESH_PREAMBLE =
+  "[New request in this conversation. A fresh session was started; the earlier conversation follows as text. Files from earlier work are on disk.]";
 const EXTERNAL_UPDATE_PREAMBLE =
   "[This conversation received an update outside your provider session. The complete current history follows so you can use that update in your next response:]";
 
@@ -58,13 +62,13 @@ export function buildTurnContext(input: TurnContextInput): {
   turnText: string;
   resume: boolean;
 } {
-  const { text, transcript, rewound, fresh, externallyUpdated, replaysNatively } = input;
+  const { text, transcript, rewound, fresh, externallyUpdated, replaysNatively, idleFresh } = input;
   const resume = !rewound && !fresh && !externallyUpdated;
   const replay = !resume && !replaysNatively && transcript.length > 0;
   if (!replay) return { turnText: text, resume };
   return {
     turnText: [
-      rewound ? REWOUND_PREAMBLE : externallyUpdated ? EXTERNAL_UPDATE_PREAMBLE : FRESH_PREAMBLE,
+      rewound ? REWOUND_PREAMBLE : externallyUpdated ? EXTERNAL_UPDATE_PREAMBLE : idleFresh ? IDLE_FRESH_PREAMBLE : FRESH_PREAMBLE,
       "",
       ...transcript.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`),
       "",

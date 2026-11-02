@@ -122,11 +122,30 @@ export const VIDEO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024 * 1024;
 export const CHUNKED_UPLOAD_THRESHOLD = 50 * 1024 * 1024;
 export const UPLOAD_PART_BYTES = 32 * 1024 * 1024;
 const PART_ATTEMPTS = 5;
+/** Must match the server's TURN_IMAGE_MAX_COUNT. */
+export const MESSAGE_IMAGE_MAX_COUNT = 50;
 /** The server imports this module too, so the words come from the app: it sets them once with the person's language. */
 export const attachmentWords = {
   tooBig: (name: string, size: string) => `${name} is too big; the limit is ${size}`,
   notSupported: (names: string) => `I can't attach ${names}: folders and empty files can't be sent.`,
+  tooManyImages: (names: string, max: number) => `One message carries up to ${max} images; these were not attached: ${names}`,
 };
+
+export function imageRoomLeft(attachments: readonly Pick<Attachment, "kind">[]): number {
+  return Math.max(0, MESSAGE_IMAGE_MAX_COUNT - attachments.filter((attachment) => attachment.kind === "image").length);
+}
+
+/** Keeps the files in the order given; only images past the room are left out. */
+export function fitImages<T extends { name: string; type: string }>(files: readonly T[], room: number): { files: T[]; leftOut: string[] } {
+  const kept: T[] = [];
+  const leftOut: string[] = [];
+  let images = 0;
+  for (const file of files) {
+    if (isImageFile(file) && ++images > room) leftOut.push(file.name || "image");
+    else kept.push(file);
+  }
+  return { files: kept, leftOut };
+}
 
 /** What the app will load into memory to play a video inline: not the upload ceiling (see VIDEO_UPLOAD_MAX_BYTES). */
 export const VIDEO_MAX_BYTES = 200 * 1024 * 1024;
@@ -394,9 +413,13 @@ function canonicalImageName(originalName: string, path: string, mime: string): s
   return `${stem}${extension}`;
 }
 
+function imageTooBig(file: File): Error {
+  return Object.assign(new Error(attachmentWords.tooBig(file.name, formatLimit(IMAGE_MAX_BYTES))), { status: 413 });
+}
+
 export function optimisticImageAttachment(file: File): ImageAttachment | null {
   if (!isImageFile(file)) return null;
-  if (file.size > IMAGE_MAX_BYTES) throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
+  if (file.size > IMAGE_MAX_BYTES) throw imageTooBig(file);
   const mime = file.type.split(";", 1)[0]!.trim().toLowerCase();
   const previewUrl = typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : undefined;
   return {
@@ -417,7 +440,7 @@ export async function imageAttachmentFromFile(
   onProgress?: (percent: number) => void,
 ): Promise<ImageAttachment | null> {
   if (!isImageFile(file)) return null;
-  if (file.size > IMAGE_MAX_BYTES) throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
+  if (file.size > IMAGE_MAX_BYTES) throw imageTooBig(file);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const uploadId = newUploadId();
   const progress = onProgress ? createUploadProgress(bytes.byteLength, onProgress) : null;
@@ -918,10 +941,13 @@ export async function intakeFiles<T extends DroppedFile & { type: string }>(
     uploadImage: (file: T) => Promise<Attachment | null>;
     /** Resolves to the attachment, null when the file cannot be sent, or "added" when it already joined the draft itself (with its progress chip). */
     uploadFile?: (file: T) => Promise<FileAttachment | "added" | null>;
+    /** How many more images the message can carry; absent means no cap here. */
+    imageRoom?: number;
   },
 ): Promise<{ attachments: Attachment[]; notice: string | null }> {
-  const files = [..._files];
   const { allowImages, getPath, uploadImage } = _opts;
+  const fitted = allowImages && _opts.imageRoom !== undefined ? fitImages(_files, _opts.imageRoom) : { files: [..._files], leftOut: [] };
+  const files = fitted.files;
   const uploadFile = _opts.uploadFile ?? (async (file: T) => {
     if (!file.arrayBuffer) return null;
     return fileAttachmentFromFile(file as unknown as File);
@@ -966,9 +992,11 @@ export async function intakeFiles<T extends DroppedFile & { type: string }>(
     ? attachmentWords.notSupported(rejectedNames.join(", "))
     : null;
   const failed = uploadErrors.length ? uploadErrors.join("; ") : null;
+  const overflow = fitted.leftOut.length ? attachmentWords.tooManyImages(fitted.leftOut.join(", "), MESSAGE_IMAGE_MAX_COUNT) : null;
+  const notice = pathless && failed ? `${pathless} (${failed})` : (pathless ?? failed);
   return {
     attachments,
-    notice: pathless && failed ? `${pathless} (${failed})` : (pathless ?? failed),
+    notice: overflow && notice ? `${overflow}. ${notice}` : (overflow ?? notice),
   };
 }
 

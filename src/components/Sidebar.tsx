@@ -142,6 +142,7 @@ import { sidebarFlatItems } from "@/lib/sidebar-order";
 import { attentionHasRunningWork, attentionJumpAction, attentionTriggerLabel, attentionUnpinAction, AttentionThreadRows, crossBotAttentionThreads, crossBotPinnedThreads, SidebarBotActivity, sidebarBotActivityTasks, botWorkingIn } from "./SidebarBotActivity";
 import { needsYouEntries } from "./NeedsYouPanel";
 import { SidebarAttentionPanel } from "./SidebarAttentionPanel";
+import { SidebarGettingStarted } from "./SidebarGettingStarted";
 import { SidebarPinnedThreadsPanel } from "./SidebarPinnedThreadsPanel";
 import { useLiveMedia } from "@/lib/live-call-media";
 import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
@@ -2363,6 +2364,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       />
 
       <div className={cn("pb-3 pt-2", density === "icons" ? "flex flex-col items-center gap-1 px-2" : "px-3")}>
+        {density !== "icons" && <SidebarGettingStarted />}
         {(advanced || density === "icons") && <SidebarBoardNav density={density} />}
         <SidebarFooterNav
           density={density}

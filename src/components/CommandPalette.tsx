@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot as BotIcon, MessageSquare, Search, Users } from "lucide-react";
+import { Bot as BotIcon, Keyboard, MessageSquare, MessageSquarePlus, Plus, Search, Settings, Square, Users, type LucideIcon } from "lucide-react";
 import { api, openBot, useStore, type Bot, type Group } from "@/state/store";
 import { rankByName } from "@/lib/palette-rank";
 import { useShowThreads } from "@/lib/thread-preferences";
@@ -7,11 +7,35 @@ import { cn } from "@/lib/cn";
 import type { SearchHit } from "@/lib/search-hit";
 import { landOnSearchHit } from "@/lib/focus-message";
 import { t } from "@/lib/i18n";
+import { newConversationAction, runningWork, stopWorkActions } from "@/lib/app-actions";
+import { useGuest } from "@/lib/use-viewer";
+import type { Action } from "@/state/store";
+
+interface PaletteAction {
+  id: string;
+  label: string;
+  Icon: LucideIcon;
+  actions: Action[];
+}
 
 type PaletteEntry =
   | { kind: "bot"; bot: Bot }
   | { kind: "room"; group: Group }
+  | { kind: "action"; action: PaletteAction }
   | { kind: "message"; hit: SearchHit };
+
+export function paletteActions(state: Parameters<typeof runningWork>[0] & Parameters<typeof newConversationAction>[0], guest: boolean): PaletteAction[] {
+  const list: PaletteAction[] = [];
+  const fresh = newConversationAction(state);
+  const name = state.groups.find((group) => group.id === state.selectedId)?.name ?? state.bots.find((bot) => bot.id === state.selectedId)?.name;
+  if (fresh && name) list.push({ id: "new-conversation", label: t("palette.action.newConversation", { name }), Icon: MessageSquarePlus, actions: [fresh] });
+  if (!guest) list.push({ id: "new-bot", label: t("palette.action.newBot"), Icon: Plus, actions: [{ type: "toggleNewBot", open: true }] });
+  const work = runningWork(state);
+  if (work.length > 0) list.push({ id: "stop-all", label: t("palette.action.stopAll", { count: work.length }), Icon: Square, actions: stopWorkActions(work) });
+  if (!guest) list.push({ id: "open-settings", label: t("palette.action.settings"), Icon: Settings, actions: [{ type: "toggleAppSettings", open: true }] });
+  list.push({ id: "shortcuts", label: t("palette.action.shortcuts"), Icon: Keyboard, actions: [{ type: "toggleShortcuts", open: true }] });
+  return list;
+}
 
 const OPEN_EVENT = "nordus:open-command-palette";
 
@@ -22,6 +46,7 @@ export function openCommandPalette() {
 export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean) => void }) {
   const { state, dispatch } = useStore();
   const showThreads = useShowThreads();
+  const guest = useGuest();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [messageHits, setMessageHits] = useState<SearchHit[]>([]);
@@ -85,9 +110,11 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
 
   const bots = rankByName(state.bots.filter((b) => !b.hidden), q);
   const rooms = rankByName(state.groups, q);
+  const commands = paletteActions(state, guest).filter((action) => !q || action.label.toLowerCase().includes(q));
   const entries: PaletteEntry[] = [
     ...bots.map((bot): PaletteEntry => ({ kind: "bot", bot })),
     ...rooms.map((group): PaletteEntry => ({ kind: "room", group })),
+    ...commands.map((action): PaletteEntry => ({ kind: "action", action })),
     ...(q ? messageHits.map((hit): PaletteEntry => ({ kind: "message", hit })) : []),
   ];
   const selected = entries.length ? Math.min(cursor, entries.length - 1) : 0;
@@ -100,6 +127,8 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
       } catch (error) {
         dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
       }
+    } else if (entry.kind === "action") {
+      for (const action of entry.action.actions) dispatch(action);
     } else if (entry.kind === "bot") {
       openBot(dispatch, entry.bot, showThreads);
     } else {
@@ -127,7 +156,8 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
   };
 
   const roomOffset = bots.length;
-  const messageOffset = bots.length + rooms.length;
+  const actionOffset = bots.length + rooms.length;
+  const messageOffset = actionOffset + commands.length;
 
   const row = (key: string, index: number, onPick: () => void, children: React.ReactNode, twoLine = false) => (
     <button
@@ -209,6 +239,22 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
               <>
                 <Users size={16} className="shrink-0 text-ink-secondary" />
                 <span className="truncate text-[14px] text-ink">{group.name}</span>
+              </>,
+            ),
+          )}
+          {commands.length > 0 && (
+            <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+              {t("palette.actions")}
+            </div>
+          )}
+          {commands.map((action, i) =>
+            row(
+              `action:${action.id}`,
+              actionOffset + i,
+              () => void activate({ kind: "action", action }),
+              <>
+                <action.Icon size={16} className="shrink-0 text-ink-secondary" />
+                <span className="truncate text-[14px] text-ink">{action.label}</span>
               </>,
             ),
           )}

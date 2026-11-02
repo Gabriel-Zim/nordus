@@ -40,6 +40,7 @@ import { ephemeralWorkspaceTokenPath } from "../workspace-backup-policy.ts";
 import * as procs from "../procs.ts";
 import * as localInject from "./local-inject.ts";
 import { turnRefusal } from "../../shared/turn-refusal.ts";
+import { freshSessionDue } from "../../shared/fresh-session.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
 const dumpedPid = (dump: string): number => JSON.parse(readFileSync(dump, "utf8")).pid;
@@ -3830,6 +3831,61 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.capabilities.effortLevels).toEqual([
       "low", "medium", "high", "xhigh", "max",
     ]);
+  });
+});
+
+describe("ClaudeDriver fresh session after idle (fake CLI)", () => {
+  let instance: ProviderInstance;
+  let recorder: EventRecorder;
+  let scratch: string;
+  const now = Date.now();
+
+  beforeEach(async () => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "nordus-claude-idle-"));
+    instance = await ClaudeDriver.create({
+      instanceId: "claude-test",
+      displayName: "Claude Test",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, permissionMode: "auto" } as never,
+    });
+    recorder = recordEvents(instance.adapter);
+  });
+
+  afterEach(async () => {
+    delete process.env.FAKE_CLAUDE_DUMP;
+    recorder?.stop();
+    await instance.adapter.stopAll();
+    removeTempDir(scratch);
+  });
+
+  // The cursor the server sends: dropped when the idle limit passed, as it clears the task's resume cursors.
+  const launch = async (name: string, idleMinutes: number | undefined, idleForMinutes: number) => {
+    const dump = join(scratch, `${name}.json`);
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const due = freshSessionDue({ idleMinutes, lastActivityAt: now - idleForMinutes * 60_000, now });
+    const turn = await instance.adapter.sendTurn({ threadId: `t-idle-${name}`, text: "next request", ...(due ? {} : { resumeCursor: "sess-old" }) });
+    await recorder.until((event) => event.type === "turn.completed" && event.turnId === turn.turnId);
+    return JSON.parse(readFileSync(dump, "utf8")) as { argv: string[] };
+  };
+
+  it("resumes the session when the conversation was active within the limit", async () => {
+    const { argv } = await launch("below", 1, 0.5);
+    expect(argv).toContain("--resume");
+    expect(argv).toContain("sess-old");
+  });
+
+  it("opens a new session without --resume once it sat idle past the limit", async () => {
+    const { argv } = await launch("above", 1, 2);
+    expect(argv).not.toContain("--resume");
+  });
+
+  it("keeps resuming without the field", async () => {
+    const { argv } = await launch("absent", undefined, 600);
+    expect(argv).toContain("--resume");
+    expect(argv).toContain("sess-old");
   });
 });
 

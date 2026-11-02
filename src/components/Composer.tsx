@@ -52,6 +52,9 @@ import {
   intakeFiles,
   isLongPaste,
   optimisticImageAttachment,
+  fitImages,
+  imageRoomLeft,
+  MESSAGE_IMAGE_MAX_COUNT,
   pasteAttachment,
   releaseAttachmentImagePreview,
   type Attachment,
@@ -61,6 +64,7 @@ import { attachmentWords } from "@/lib/composer-attachments";
 
 attachmentWords.tooBig = (name, size) => t("attach.tooBig", { name, size });
 attachmentWords.notSupported = (names) => t("attach.notSupported", { names });
+attachmentWords.tooManyImages = (names, max) => t("attach.tooManyImages", { names, max });
 import { goalCoordinatorForComposer, openTaskWorking, roomRespondersForComposer } from "@/lib/group-routing";
 import { CallButton } from "./CallView";
 import { GroupCallButton } from "./GroupCallView";
@@ -521,6 +525,7 @@ export function Composer({
         getPath: pathForFile,
         uploadImage,
         uploadFile,
+        imageRoom: imageRoomLeft(attachments),
       });
       if (added.length) addAttachments(added);
       if (notice) setAttachmentNotice(notice);
@@ -596,10 +601,13 @@ export function Composer({
         return;
       }
       if (imageFiles.length > 0) {
+        const fitted = fitImages(imageFiles, imageRoomLeft(attachments));
+        if (fitted.leftOut.length) setAttachmentNotice(attachmentWords.tooManyImages(fitted.leftOut.join(", "), MESSAGE_IMAGE_MAX_COUNT));
+        if (!fitted.files.length) return;
         changeDraftAttachmentPending(draftId, true);
         void (async () => {
           try {
-            const results = await Promise.allSettled(imageFiles.map(uploadImage));
+            const results = await Promise.allSettled(fitted.files.map(uploadImage));
             for (const result of results) {
               if (result.status === "rejected") {
                 dispatch({
